@@ -113,7 +113,7 @@ Both an entries value and a whole rule can be made conditional instead of a flat
 | `olderThan` | The inverse of `newerThan` |
 | `maxSizeBytes` | Applies only while the entry is at or under the given size |
 | `branch` | Applies only while the repo at `$PWD` is checked out on a matching branch (glob-capable) |
-| `env` | Applies only while the named environment variable equals the given value |
+| `env` | Applies only while every named environment variable in the condition equals its given value (one or more, all required) |
 
 Conditions combine with AND logic within one `when` object. `cwd` is deliberately not a condition type — directory scoping already has its own first-class mechanism (below), so a generic condition would just be a worse way to do the same thing.
 
@@ -213,11 +213,11 @@ CLAUDE_USE_REMOTE_CONTROL=1 claude
 |---|---|---|---|
 | **Identity** | `claude-use identity use <name>` | `claude @<name>` / `CLAUDE_ACCOUNT=<name> claude` | `claude-use rules add <path> --identity <name>`; or `.claude-use.json`'s `"identity"` |
 | **Configuration profile** | `claude-use profile set-default <name>`; or `claude-use identity set-default-profile <identity> <profile>` | `claude --config-profile <name>` / `CLAUDE_USE_CONFIG_PROFILE=<name> claude` | `claude-use rules add <path> --profile <name>`; or `.claude-use.json`'s `"configProfile"` |
-| **A category** | `claude-use profile set <name> --category history=true`; or `claude-use configure <identity>` | `claude --category history=true` / `CLAUDE_USE_CATEGORY_OVERRIDE="history=true"` | `claude-use configure <identity> <path>` run from inside the ruled directory; or `.claude-use.json`'s `"categories"` |
-| **An individual entry** | `claude-use profile set <name> --entry "path"=true`; or `claude-use configure <identity> <path>` | `claude --share <path>` / `claude --hide <path>` / `CLAUDE_USE_ENTRY_OVERRIDE="path=true"` | `claude-use configure <identity> <path>` run from inside the ruled directory; or `.claude-use.json`'s `"entries"` |
-| **Launch flags** | `claude-use profile set <name> --skip-permissions` | `CLAUDE_USE_SKIP_PERMISSIONS=1 claude` / `CLAUDE_USE_REMOTE_CONTROL=1 claude` | rule's inline `"launch"` field; or `.claude-use.json`'s `"launch"` |
+| **A category** | `claude-use profile set <name> --category history=true`; or `claude-use configure <identity>` | `claude --category history=true[,knowledge=false,...]` / `CLAUDE_USE_CATEGORY_OVERRIDE="history=true,knowledge=false"` | `claude-use configure <identity>` run from inside the ruled directory; or `.claude-use.json`'s `"categories"` |
+| **An individual entry** | `claude-use profile set <name> --entry "path"=true`; or `claude-use configure <identity> <path>` | `claude --share <path>[,<path>,...]` / `claude --hide <path>[,<path>,...]` / `CLAUDE_USE_ENTRY_OVERRIDE="path=true,otherpath=false"` | `claude-use configure <identity> <path>` run from inside the ruled directory; or `.claude-use.json`'s `"entries"` |
+| **Launch flags** | `claude-use profile set <name> [--skip-permissions] [--remote-control]` | `CLAUDE_USE_SKIP_PERMISSIONS=1 claude` / `CLAUDE_USE_REMOTE_CONTROL=1 claude` | rule's inline `"launch"` field; or `.claude-use.json`'s `"launch"` |
 
-The scriptable `claude-use profile set ...` commands exist alongside the interactive picker specifically so this is automatable — CI, setup scripts, or a `.claude-use.json` generator don't need to drive an interactive prompt.
+The scriptable `claude-use profile set ...` commands exist alongside the interactive picker specifically so this is automatable — CI, setup scripts, or a `.claude-use.json` generator don't need to drive an interactive prompt. `--category`, `--entry`, `--share`, and `--hide` are all repeatable in one invocation (`claude --share <path> --share <path>`) and their env-var equivalents take a comma-separated list of `key=value` pairs, the same convention `--extends` already uses below — so temporarily sharing two paths at once, or setting two categories in one launch, doesn't need two separate invocations. `CLAUDE_EXTRA_FLAGS` (below) is the one exception: it's a single opaque string, split on whitespace before being appended to the real binary's argv — a flag value that itself needs an embedded space isn't expressible through it.
 
 ### Full command list
 
@@ -230,21 +230,32 @@ claude-use identity set-default-profile <identity> <profile>
 claude-use profile create <name> [--extends <name>,<name>,...]
 claude-use profile list
 claude-use profile set-default <name>
-claude-use profile set <name> --category <cat>=<bool>
-claude-use profile set <name> --entry "<path>"=<bool>
-claude-use profile set <name> --skip-permissions [--remote-control]
+claude-use profile set <name> --category <cat>=<bool>[,<cat>=<bool>,...]
+claude-use profile set <name> --entry "<path>"=<bool>[,"<path>"=<bool>,...]
+claude-use profile set <name> [--skip-permissions] [--remote-control]
 
 claude-use rules add <path> [--profile <name>] [--identity <name>]
 claude-use rules list
 claude-use rules remove <path>
 
-claude-use configure [identity] [path]
+claude-use configure <identity> [path]
 claude-use check [path] [--identity <name>]
 ```
 
 ### `claude-use configure`: which file it writes to
 
-`claude-use configure <identity> [path]` always takes an identity as its first argument, never a profile or a rule directly — with no `path`, it lists that identity's resolved state top to bottom and lets you pick a configuration profile to edit; given a `path`, it lists that path's children with their resolved state and multi-select toggles. Where a toggle gets written depends on context at invocation time, not on anything you pass explicitly: if `$PWD` currently matches a directory rule, the toggle is written into that rule's inline `categories`/`entries` (creating a new rule for the exact matched path in `~/.claude-use/directory-rules.json` if none exists yet); otherwise it's written into the identity's active configuration profile. `claude-use check` (below) shows you which of the two would apply before you commit to a change, if you're unsure.
+`claude-use configure <identity> [path]` always takes an identity as its required first argument, never a profile or a rule directly — a plain `claude-use configure <identity>` with no arguments beyond that is an error, not a default. Two modes:
+
+- **No `path`**: lists that identity's resolved top-level state — the five categories, plus a "edit a specific configuration profile" option — and lets you toggle categories directly or drill into a named profile's own file. This is the only mode that touches `categories`.
+- **Given a `path`**: lists that path's children with their resolved state and multi-select toggles, for fine-grained `entries` overrides. This mode never shows or edits categories, only entries under the given path.
+
+In both modes, *where* a toggle is written depends on `$PWD` at invocation time, not on anything passed explicitly, and it never edits a committed, team-shared file directly:
+
+1. If `$PWD` is inside a directory covered by a committed `.claude-use.json` (or `.claude-use.local.json` already exists there), the toggle is written into `.claude-use.local.json` in that same directory — created if it doesn't exist yet — which is the personal-override mechanism [Portable config](#portable-config-claude-usejson) already defines for exactly this case, and is gitignored by convention.
+2. Otherwise, if `$PWD` matches a rule in the user's own `~/.claude-use/directory-rules.json` (or would, once one is created for this exact path), the toggle is written there.
+3. Otherwise, it's written into the identity's active configuration profile.
+
+`claude-use check` (below) shows you which of the three would apply before you commit to a change, if you're unsure.
 
 ### Debugging: `claude-use check`
 
@@ -385,7 +396,7 @@ The pure decision logic — `(entryFacts, cascade, path) => Map<path, boolean>` 
 
 **Materialised directories need a write-through reconciliation step, not just a one-way split.** A directory the real Claude Code binary can create new children in at runtime — `history/projects/` chief among them, since Claude Code creates a new project subdirectory there the first time it sees an unfamiliar working directory — is exactly the kind of directory the tool's own conditional and per-project sharing examples recommend materialising. Once materialised, it stops being a live view of `~/.claude/projects/` and becomes a locally-built directory of symlinks (and further materialised subdirectories) frozen at resync time. Anything Claude Code subsequently writes into it — a brand-new project subdirectory, a new session file inside an existing one — lands as a real, untracked child of that materialised directory, not a symlink back to `~/.claude`: invisible to every other identity, and liable to be misread as stale scaffolding and pruned on a later resync.
 
-The resolver closes this by treating every materialised directory as a two-way sync point, not a one-way snapshot: on every resync, before making a fresh split/uniform decision for a materialised directory, it first diffs the directory's actual children against what the previous resync placed there. Any child that's a real file/directory rather than a symlink or a previously-materialised (and still-tracked) subdirectory is new data Claude Code wrote since the last resync — it gets moved back into the corresponding real path under `~/.claude` first, so it's never lost, and only then does the resolver re-run the category/entries decision for it (which may immediately symlink it back in, if the resolved state says to share it). This reconciliation pass is what keeps "materialise when split, symlink when uniform" safe to apply to a directory the underlying tool itself writes into.
+The resolver closes this by treating every materialised directory as a two-way sync point, not a one-way snapshot, and does so without ever mutating the live farm in place — consistent with [Directory rules](#directory-rules)'s atomic-swap resync, not in tension with it. On every resync, before building the new scratch tree, the reconciliation pass reads (never writes) each materialised directory still present in the *old* live farm and diffs its actual children against what the previous resync placed there. Any child that's a real file/directory rather than a symlink or a previously-materialised (and still-tracked) subdirectory is new data Claude Code wrote since the last resync — it gets **copied** into the corresponding real path under `~/.claude` (the canonical location, so it's never lost regardless of what happens to the old farm next), and the resolver then makes its usual category/entries decision for that now-canonical entry same as any other, which the new scratch tree reflects like everything else. Once the scratch tree is fully built this way, the atomic rename swaps it in and the old live farm — materialised copies included — is discarded wholesale, the same single swap every other resync already performs; reconciliation never needs its own separate write against the live tree.
 
 The reverse direction matters just as much: a directory materialised because of a split whose cause later disappears (a profile edit removes the entry override that split it, say) collapses back into a single plain symlink on the next resync, rather than being left behind as permanent local scaffolding. This is the same "compare against prior farm state, update only what changed" logic that makes every resync fast in the common case, applied to the one case where a subtree's resolved shape needs to get simpler, not just different.
 
@@ -393,7 +404,7 @@ The reverse direction matters just as much: a directory materialised because of 
 
 Bundle `src/cli.ts` to a single file with esbuild, generate the SEA blob with `node --experimental-sea-config`, then inject it into a copy of the Node binary with `postject`. Confirm the exact current steps against up-to-date Node documentation before implementing — the SEA feature is still evolving between Node releases. Initial target platforms are macOS arm64 and x64, built in CI on tag push and published as GitHub Release assets; add others only if actually needed.
 
-The published JSON Schemas under `schema/` should self-reference (and, if ever submitted to a public schema catalog, be registered) via a version-pinned GitHub Release asset URL, the same pattern already used for [installing the binaries](#install) — never a live branch reference, which silently changes underneath every consumer on every push with no way to pin a version.
+The published JSON Schemas under `schema/` should self-reference (and, if ever submitted to a public schema catalog, be registered) via a **version-pinned** GitHub Release asset URL — `releases/download/<tag>/<file>` — never a live branch reference, which silently changes underneath every consumer on every push with no way to pin a version. This is deliberately a different URL form from [installing the binaries](#install)'s own `releases/latest/download/...`: the installer *wants* the newest release every time, but a schema an editor references long-term needs to stay stable at whatever version a given config file was written against, not shift underfoot on every future release.
 
 ## Testing strategy
 
@@ -414,7 +425,7 @@ The published JSON Schemas under `schema/` should self-reference (and, if ever s
 
 ## Contributing
 
-Issues and pull requests are welcome. Please keep the tool itself free of assumptions about any particular organisation, client, or directory layout — it should work the same for anyone.
+Issues and pull requests are welcome. Please keep the tool itself free of assumptions about any particular organisation, client, or directory layout — it should work the same for anyone. Governance details (contribution sign-off requirements, code of conduct, review process) aren't decided yet and will be added here before the repository is opened up beyond its initial maintainers.
 
 ## License
 
