@@ -36,7 +36,7 @@ That's it — with no further configuration, everything in `~/.claude` that isn'
 
 ### Identities
 
-An identity is a directory at `~/.claude-use/identities/<name>/` — a symlink farm mirroring the parts of `~/.claude` that are configured to be shared, plus its own locally-written credentials and daemon state that are never shared with any other identity. This is what `CLAUDE_CONFIG_DIR` points at when you run `claude` under that identity.
+An identity is a directory at `~/.claude-use/identities/<name>/` — a symlink farm mirroring the parts of `~/.claude` that are configured to be shared, plus its own locally-written credentials and daemon state that are never shared with any other identity. This is what `CLAUDE_CONFIG_DIR` points at when you run `claude` under that identity. Alongside the farm, the identity directory holds one small, Zod-validated `identity.json` (created by `claude-use identity add`) whose only current field is the optional `defaultConfigProfile` used to resolve which configuration profile applies, per below.
 
 Select an identity with:
 
@@ -79,6 +79,8 @@ Every top-level entry in `~/.claude` is classified into one of five categories, 
 
 This is a safe-by-default posture: only `knowledge` and `settings` are shared out of the box. A configuration profile can open up `history` (or anything else) wholesale, or share individual items within a closed category.
 
+`secret`'s "never, cannot be overridden" is an absolute check `resolve.ts` makes *before* running the two-phase cascade at all — not merely the least-specific layer in that cascade, the way every other category is. This matters because [The cascade](#the-cascade-how-everything-composes)'s general rule is that a specific `entries` override always beats a category default; `secret` is the one deliberate exception, so an explicit `entries: { ".credentials.json": true }` anywhere in any layer is rejected outright, the same as a bare `categories: { secret: true }` would be — path-specificity never gets a chance to apply to this one category.
+
 **Unclassified entries never disappear silently.** If Claude Code ever adds a new top-level file or directory this map doesn't recognise, the first time `claude-use` sees it, it prompts interactively (via `claude-use configure`) for a category, or "skip for now." The answer is written to a local overlay (`~/.claude-use/categories.local.json`) so it's never asked again, and the shipped default map stays untouched. In a non-interactive context (a script, a CI run), an unanswered entry stays excluded and gets reported, rather than the tool guessing or blocking.
 
 ### Path-level overrides
@@ -90,6 +92,8 @@ Any configuration layer — a profile, a directory rule, a committed `.claude-us
 ```
 
 shares exactly one skill even though the rest of `knowledge` is closed. The most specific matching path always wins.
+
+All path and glob matching in this design (`entries` keys, directory-rule `path` values, `~/.claude/projects/` patterns) is byte-for-byte case-sensitive, deliberately independent of whether the underlying filesystem is. This matters because the initial [build target](#build-node-sea) is macOS, whose default APFS volume is case-insensitive-but-case-preserving — without a fixed policy, a config's literal key could resolve differently at the filesystem level than in `claude-use`'s own string matching whenever their casing disagreed, invisibly on that one platform. Case-sensitive matching everywhere means the same config behaves identically regardless of which platform's filesystem it runs on.
 
 ### Conditional matching (`when`)
 
@@ -119,7 +123,7 @@ Because every launch resolves the cascade fresh, an age-based condition means "s
 
 Resolution proceeds through four layers, in order:
 
-1. Shipped defaults (`categories.default.json`)
+1. Shipped defaults (`config/categories.default.json`)
 2. User-global override (`~/.claude-use/config.json`)
 3. The active configuration profile's resolved overrides (itself the composition of its `extends` chain, then its own direct overrides)
 4. Directory-hierarchy rules for `$PWD`, shallowest to deepest — each one composing in whichever configuration profile it selects plus any inline overrides
@@ -128,7 +132,7 @@ Every layer composes with what came before it; nothing is a wholesale replacemen
 
 **Phase one — flatten.** Walk the ordered layer sequence once, spreading each layer's `categories` and `entries` over an accumulator. A later layer's value for the exact same category name, or the exact same literal/glob entries key, replaces an earlier layer's value for that identical key. This is a plain shallow merge — no path-specificity reasoning happens here.
 
-**Phase two — resolve per entry.** For each actual file under `~/.claude`, look up the flattened entries map for the most specific matching key: an exact literal path beats a glob that also matches it; among several matching globs, whichever survived phase one (i.e. the later layer) wins. Only if nothing in the entries map matches does the entry fall back to the flattened categories map.
+**Phase two — resolve per entry.** For each actual file under `~/.claude`, look up the flattened entries map for the most specific matching key: an exact literal path beats a glob that also matches it; among several matching globs that came from *different* layers, whichever survived phase one (i.e. the later layer) wins, since phase one already collapsed those to one value per identical key. Two *different* globs from the *same* layer's own `entries` object (e.g. one profile setting both `"history/projects/*"` and `"history/projects/ac*"` at once) are a same-layer conflict phase one can't resolve, since they're distinct keys, not an identical one — phase two breaks this tie by longest literal (non-wildcard) prefix first; if that's exactly equal too, the pattern that appears later in the source file's own key order wins. Only if nothing in the entries map matches at all does the entry fall back to the flattened categories map.
 
 The consequence worth internalising: **entries always outrank the category default, regardless of which layer set which.** A directory rule three levels deep that flips `categories: { history: false }` cannot silently undo an earlier, shallower layer's `entries: { "history/projects/acme": true }` — a category setting is definitionally the least specific override there is. To actually change that one path, a later layer has to set an equally-or-more-specific entry itself, not merely toggle the category.
 
@@ -150,7 +154,9 @@ Modelled on how Claude Code itself resolves nested `CLAUDE.md` files: walking up
 
 At launch, every rule whose `path` is an ancestor of (or equal to) `$PWD` is collected, sorted shallowest-first, and folded into the cascade in order. A rule's `configProfile` composes in rather than swapping in wholesale — `client-strict` above might itself extend `work-default`, so the deeper rule is saying "here's what's additionally true this far down the tree." A rule's optional `identity` field pins which login applies for that path regardless of whichever identity is otherwise active — an explicit `@name`/`CLAUDE_ACCOUNT` on the command line still wins over a directory pin (it's the most deliberate, immediate signal), but a directory pin beats the plain global default, making it a genuine safety net: if you accidentally run the wrong login from inside a sensitive directory out of habit, the pin holds unless you explicitly override it.
 
-Because the farm's content now depends on **(identity, resolved configuration profile, directory)**, not just identity, `claude` resolves the full cascade for `$PWD` and resyncs the active identity's farm in place on every single launch, before spawning the real binary — fast, since it's comparing and updating symlinks over a few dozen entries, not rebuilding from scratch.
+Because the farm's content now depends on **(identity, resolved configuration profile, directory)**, not just identity, `claude` resolves the full cascade for `$PWD` and resyncs the active identity's farm in place on every single launch, before spawning the real binary — fast, when the resolved decision is uniform across the categories in play, since it's comparing and updating symlinks over a few dozen top-level entries rather than rebuilding from scratch. This stops being cheap the moment a conditional override is in scope for a large subtree — `history/projects/` chief among them, since a `newerThan`/`olderThan`/`maxSizeBytes` condition (per [Conditional matching](#conditional-matching-when)) can never use the uniform-symlink shortcut and has to evaluate each project directory's own mtime/size individually, on every launch, with no caching described. For a long-lived identity with a lot of history, this is worth benchmarking early rather than assumed away.
+
+Running two or more sessions concurrently under one identity — two terminals, each in a different client directory, is exactly the pattern directory rules are meant to support — means two resyncs can race to mutate the same shared farm toward two different resolved states. The launcher serialises this with a per-identity lock file (held for the duration of the resync, released before spawning `claude`) and builds each resync's changes as a scratch tree swapped into place with an atomic rename rather than mutating the live farm path-by-path in place, so a sibling session never observes a half-updated farm partway through someone else's resync.
 
 ## Portable config: `.claude-use.json`
 
@@ -164,25 +170,31 @@ A `.claude-use.json` is self-contained by default:
 { "categories": { "history": false }, "entries": { "knowledge/skills/commit": true } }
 ```
 
-It may also reference a named `configProfile`, resolved first against any profile shipped in a sibling `.claude-use/profiles/` directory in the same repo, falling back to the user's own local `~/.claude-use/config-profiles/` — so a team can keep everything inline and portable, or ship a small reusable profile library alongside the pointer file.
+It may also reference a named `configProfile`, resolved first against any profile shipped in a sibling `.claude-use/config-profiles/` directory in the same repo, falling back to the user's own local `~/.claude-use/config-profiles/` — so a team can keep everything inline and portable, or ship a small reusable profile library alongside the pointer file.
 
 **A per-repo local override pairs with the committed file.** Alongside `.claude-use.json`, an optional `.claude-use.local.json` in the same directory — gitignored, never committed — carries personal tweaks specific to that one clone. Add `.claude-use.local.json` to your project's `.gitignore` the same way you'd gitignore any other personal override file.
 
-At a given directory level, up to three sources can apply, composed most-personal-last: the committed `.claude-use.json` (team-shared), then this user's own `~/.claude-use/directory-rules.json` entry for that path if one exists (cross-repo, this user's default), then `.claude-use.local.json` in that directory if present (this one repo, this user, never committed).
+At a given directory level, up to three sources can apply, composed most-personal-last: the committed `.claude-use.json` (team-shared), then this user's own `~/.claude-use/directory-rules.json` entry for that path if one exists (cross-repo, this user's default), then `.claude-use.local.json` in that directory if present (this one repo, this user, never committed). This three-source fold happens once per directory level, and the whole shallowest-to-deepest walk (per [Directory rules](#directory-rules)) is one continuous sequence through those folded levels — a deeper level's three-source result composes on top of a shallower level's, not the other way around, and not gathered per-source across the whole tree first.
+
+**A committed `.claude-use.json` is trusted automatically the first time you run `claude` inside a directory it covers — there is no confirmation step, by design, but you should know that before relying on it.** Because a repo's config can broaden what an identity shares (any category or entry short of the hardcoded `secret`) the moment you run `claude` inside it, cloning and running `claude` in an unfamiliar or untrusted repo changes what that identity's farm exposes for as long as you work there. If that's a concern for a given identity — a strict client-separated one, say — pin a directory rule for that path with `claude-use rules add <path> --profile <strict-profile>` (per [CLI reference](#cli-reference)) before ever running `claude` there for the first time: a directory-scoped local rule always composes after the committed file (most-personal-last, above), so it can only tighten what an untrusted `.claude-use.json` opened, never the reverse. `claude-use check <path>` also shows you exactly what a repo's `.claude-use.json` would resolve to before you ever run `claude` there.
 
 This turns "one login, two isolated clients, a few shared skills" (see [Examples](#examples)) into something a whole team gets automatically: instead of every teammate hand-writing a local directory rule, a repo ships its own `.claude-use.json` declaring the isolation/sharing rules directly, and anyone who clones it and runs `claude` from inside it gets the same behaviour with zero local setup.
 
 ## Pattern matching against `~/.claude/projects/`
 
-Claude Code names each entry under `~/.claude/projects/` by encoding the absolute working directory a session ran from — empirically, `/` becomes `-` (a session run from `/Users/alice/work/clients/acme` produces `~/.claude/projects/-Users-alice-work-clients-acme`). This encoding is one-directional and not safely reversible (existing hyphens in real path segments are indistinguishable from encoded slashes), so `claude-use` never tries to decode a directory name back to a path. Instead, any glob pattern written in real-path terms — a directory-rule `path`, or a `history/projects/...` entry override — gets the same transform applied (literal separators become `-`, wildcards pass through unchanged) and is matched directly against the literal directory names present under `~/.claude/projects/`.
+Claude Code names each entry under `~/.claude/projects/` by encoding the absolute working directory a session ran from into a single directory name — the one confirmed sample so far is `/` becoming `-` (a session run from `/Users/alice/work/clients/acme` produces `~/.claude/projects/-Users-alice-work-clients-acme`). **Treat this as an unverified hypothesis, not a settled fact, until checked against a real installation.** Before relying on it: run a handful of sessions from representative real paths — ones containing a literal `.` (version-numbered directories are common), spaces (common in macOS paths), deep nesting past ~200 characters, and any non-ASCII characters you expect to encounter — and confirm what actually lands under `~/.claude/projects/` for each. Path-flattening schemes commonly sanitise the whole non-alphanumeric character class rather than only the separator; if Claude Code does too, matching needs to account for that, not just `/`-to-`-`. Re-check after any Claude Code version bump, since this is unversioned, undocumented behaviour on Anthropic's side that this feature depends on without a contract.
 
-This means a single rule like:
+The encoding is also **many-to-one, not merely hard to decode**: `~/work/clients/acme` and `~/work/clients-acme` (or `~/work-clients/acme`) all flatten to the identical string under a pure separator substitution. A pattern aimed at one can silently match its sibling instead — a real risk, not a theoretical one, for a tool whose whole purpose is precise per-client isolation. `claude-use check` should flag when a pattern's encoded form could plausibly correspond to more than one real path, rather than resolving silently. Because the encoding is one-directional and ambiguous in this way, `claude-use` never tries to decode a directory name back into a path — only the forward direction (real path → encoded form) is ever computed.
+
+This forward transform only applies to entries keys under the fixed `history/projects/` prefix — nowhere else. Everywhere else in this design (directory-rule `path` fields, every other `entries` key), a path is always a literal filesystem path or a normal glob over one, matched exactly as written; **a directory-rule `path` is never matched against `~/.claude/projects/` and never gets this transform** — directory rules only ever match ancestors of `$PWD` (see [Directory rules](#directory-rules)). The one place the transform applies is deliberately narrow: anything written after the literal `history/projects/` prefix in an `entries` key is a real absolute path (optionally globbed), not a literal child directory name, since `history/projects/`'s only real children are Claude Code's own encoded directory names — there's nothing else meaningful to reference there. For example:
 
 ```json
-{ "path": "~/work/clients/*", "categories": { "history": true } }
+{ "entries": { "history/projects/~/work/clients/*": true } }
 ```
 
-resolves to sharing exactly the project-history subdirectories for every matching client directory, without hand-listing each project's exact encoded name.
+shares exactly the project-history subdirectories for every real path under `~/work/clients/`, without hand-listing each project's exact encoded name — `claude-use` encodes the `~/work/clients/*` portion the same way Claude Code names its own directories, then matches it against the literal directory names present under `~/.claude/projects/`. This is narrower and correct where the earlier, broader-sounding `categories: { history: true }` on a whole directory would not be: that opens the entire `history` category (sessions, tasks, transcripts, and everything else in the [category table](#category-based-sharing)), not just `projects`.
+
+This whole mechanism assumes POSIX-style absolute paths (forward-slash separators). That's a non-issue today since the initial [build target](#build-node-sea) is macOS only; if another platform is ever added, this section — and Claude Code's own encoding behaviour on that platform — needs independent re-verification, not an assumption that the same rule carries over.
 
 ## Launch flags
 
@@ -200,9 +212,9 @@ CLAUDE_USE_REMOTE_CONTROL=1 claude
 | What you're setting | Global (persistent) | Temporary (this run only) | Directory-scoped (persistent) |
 |---|---|---|---|
 | **Identity** | `claude-use identity use <name>` | `claude @<name>` / `CLAUDE_ACCOUNT=<name> claude` | `claude-use rules add <path> --identity <name>`; or `.claude-use.json`'s `"identity"` |
-| **Configuration profile** | `claude-use profile set-default <name>`; or `claude-use identity set-default-profile <identity> <name>` | `claude --config-profile <name>` / `CLAUDE_USE_CONFIG_PROFILE=<name> claude` | `claude-use rules add <path> --profile <name>`; or `.claude-use.json`'s `"configProfile"` |
-| **A category** | `claude-use profile set <name> --category history=true`; or `claude-use configure <name>` | `claude --category history=true` / `CLAUDE_USE_CATEGORY_OVERRIDE="history=true"` | `claude-use configure <profile-or-rule>`; or `.claude-use.json`'s `"categories"` |
-| **An individual entry** | `claude-use profile set <name> --entry "path"=true`; or `claude-use configure <name> <path>` | `claude --share <path>` / `claude --hide <path>` / `CLAUDE_USE_ENTRY_OVERRIDE="path=true"` | `claude-use configure <profile> <path>`; or `.claude-use.json`'s `"entries"` |
+| **Configuration profile** | `claude-use profile set-default <name>`; or `claude-use identity set-default-profile <identity> <profile>` | `claude --config-profile <name>` / `CLAUDE_USE_CONFIG_PROFILE=<name> claude` | `claude-use rules add <path> --profile <name>`; or `.claude-use.json`'s `"configProfile"` |
+| **A category** | `claude-use profile set <name> --category history=true`; or `claude-use configure <identity>` | `claude --category history=true` / `CLAUDE_USE_CATEGORY_OVERRIDE="history=true"` | `claude-use configure <identity> <path>` run from inside the ruled directory; or `.claude-use.json`'s `"categories"` |
+| **An individual entry** | `claude-use profile set <name> --entry "path"=true`; or `claude-use configure <identity> <path>` | `claude --share <path>` / `claude --hide <path>` / `CLAUDE_USE_ENTRY_OVERRIDE="path=true"` | `claude-use configure <identity> <path>` run from inside the ruled directory; or `.claude-use.json`'s `"entries"` |
 | **Launch flags** | `claude-use profile set <name> --skip-permissions` | `CLAUDE_USE_SKIP_PERMISSIONS=1 claude` / `CLAUDE_USE_REMOTE_CONTROL=1 claude` | rule's inline `"launch"` field; or `.claude-use.json`'s `"launch"` |
 
 The scriptable `claude-use profile set ...` commands exist alongside the interactive picker specifically so this is automatable — CI, setup scripts, or a `.claude-use.json` generator don't need to drive an interactive prompt.
@@ -230,9 +242,13 @@ claude-use configure [identity] [path]
 claude-use check [path] [--identity <name>]
 ```
 
+### `claude-use configure`: which file it writes to
+
+`claude-use configure <identity> [path]` always takes an identity as its first argument, never a profile or a rule directly — with no `path`, it lists that identity's resolved state top to bottom and lets you pick a configuration profile to edit; given a `path`, it lists that path's children with their resolved state and multi-select toggles. Where a toggle gets written depends on context at invocation time, not on anything you pass explicitly: if `$PWD` currently matches a directory rule, the toggle is written into that rule's inline `categories`/`entries` (creating a new rule for the exact matched path in `~/.claude-use/directory-rules.json` if none exists yet); otherwise it's written into the identity's active configuration profile. `claude-use check` (below) shows you which of the two would apply before you commit to a change, if you're unsure.
+
 ### Debugging: `claude-use check`
 
-`claude-use check [path] [--identity <name>]` resolves the full cascade for the given path (default `$PWD`) and identity (default the active one), and prints the result — every entry's resolved state, which layer decided it, and which condition (if any) was evaluated and how — without touching the farm or spawning `claude` at all. This is the primary way to answer "why is X shared/hidden here" without launching a session to find out.
+`claude-use check [path] [--identity <name>]` resolves the full cascade for the given path (default `$PWD`) and identity (default the active one), and prints the result — every entry's resolved state, which layer decided it, and which condition (if any) was evaluated and how — without touching the farm or spawning `claude` at all. This is the primary way to answer "why is X shared/hidden here" without launching a session to find out. For any `history/projects/` glob override in scope, it also flags whenever the pattern's encoded form could plausibly match more than one real path (see [Pattern matching](#pattern-matching-against-claudeprojects)), rather than resolving that ambiguity silently.
 
 ## Examples
 
@@ -335,7 +351,7 @@ src/
                            # committed .claude-use.json / .claude-use.local.json discovery. The unit-tested core.
   versionDiscovery.ts     # portable "find the real claude binary" logic
   config/
-    schema.ts             # Zod schemas: CategoryMap, ConfigProfile, DirectoryRules, GlobalConfig — single source of truth
+    schema.ts             # Zod schemas: CategoryMap, ConfigProfile, DirectoryRules, GlobalConfig, Identity — single source of truth
     load.ts                # cosmiconfig load(filepath) wrapper (format-flexible parsing) + Zod validation
     categories.default.json
     directory-rules.example.json
@@ -347,23 +363,37 @@ scripts/build.ts           # esbuild bundle -> single CJS file -> node --experim
 install.sh                 # places built binaries as `claude` and `claude-use` in ~/.local/bin
 ```
 
+`schema.ts` models `categories` and `entries` differently despite their identical JSON-object appearance in every example above, because they have opposite key cardinality: `categories` only ever touches the five fixed names in the [category table](#category-based-sharing), so it's a closed `z.object({ runtime: z.boolean().optional(), history: z.boolean().optional(), knowledge: z.boolean().optional(), settings: z.boolean().optional() }).strict()` — deliberately omitting `secret` from the shape entirely, so an attempted `secret` key is rejected at parse time rather than relying only on the runtime check described above — while `entries` is genuinely open-ended (any literal or glob path) and stays a `z.record(z.string(), EntryValueSchema)`. The closed shape for `categories` also gives editors real key-name autocomplete from the published JSON Schema (the `schema/` directory above), which a record type can't offer.
+
+`ConfigProfile.extends` is a flat `z.array(z.string()).optional()` — a list of other profiles' *names*, resolved by `resolve.ts` loading each named file and walking the resulting graph at runtime. It's correctly **not** a self-referential Zod schema (no `z.lazy()` needed): nothing in `ConfigProfile`'s own shape points back at `ConfigProfile`. Because each profile file validates in isolation, though, Zod has no way to catch a circular `extends` definition (`a` extends `b` extends `a`) — the walker in `resolve.ts` needs its own cycle guard (a visited-set), independent of schema validation.
+
+The `when` condition object's `env` field is `z.record(z.string(), z.string())` — zero or more named environment-variable checks, ANDed together within the same `when` object exactly like every other condition, rather than a single fixed `{ name, value }` pair (which would need `when` itself to become an array to check more than one variable, a shape nothing else in this design uses).
+
 ### Why config file loading uses cosmiconfig's `load()`, never its `search()`
 
-Every config file this tool reads — the global config, named configuration profiles, and each `.claude-use.json`/`.claude-use.local.json` found while walking the directory tree — is loaded with [cosmiconfig](https://github.com/cosmiconfig/cosmiconfig)'s `load(filepath)`. Its `search()` method stops at the first config file found while walking upward; this design needs the opposite — every ancestor collected, shallowest-first — so `resolve.ts` does its own directory walk and calls `load()` at each level it visits, getting cosmiconfig's format flexibility (JSON, YAML, JS/TS, a `claude-use` key in `package.json`) without fighting its traversal semantics.
+Every config file this tool reads — the global config, named configuration profiles, and each `.claude-use.json`/`.claude-use.local.json` found while walking the directory tree — is loaded with [cosmiconfig](https://github.com/cosmiconfig/cosmiconfig)'s `load(filepath)`. Its `search()` method stops at the first config file found while walking upward; this design needs the opposite — every ancestor collected, shallowest-first — so `resolve.ts` does its own directory walk and calls `load()` at each level it visits, getting cosmiconfig's format flexibility without fighting its traversal semantics. JSON and YAML work with zero extra setup (`js-yaml` is a bundled dependency); JS config files work via native dynamic `import`/`require`. TS config files are real too, but cosmiconfig lists `typescript` as an *optional peer dependency*, not a bundled one — since every config file this tool actually defines is `.json`, that's moot in practice, but it means `.ts` config support isn't something this codebase gets "for free" the way JSON/YAML/JS are, and shipping the compiled Node SEA binary with no `node_modules` at runtime (per [Install](#install)) means a `.ts` config file would fail to load unless `typescript` were bundled into the SEA blob specifically for that purpose — not planned, since nothing this tool ships needs it.
 
 ### Why `extends` isn't cosmiconfig's `$import`
 
-cosmiconfig also supports an `$import` directive that deep-merges imported files, later imports winning — close to what `extends` needs. It isn't used for two reasons: it resolves imports by relative file path, not by profile name, so a name-to-path resolution step is needed regardless; and it has no awareness of the entries-beat-categories, most-specific-path-wins rule, which has to be bespoke either way. `resolve.ts` implements one flatten function, reused for both the `extends` chain and the outer cascade, rather than splitting the same conceptual merge across two implementations that could drift apart.
+cosmiconfig also supports an `$import` directive that deep-merges imported files, later imports winning — close to what `extends` needs. (Its default `mergeImportArrays: true` concatenates arrays — imported items first, then local — rather than fully replacing them; only `mergeImportArrays: false` gives array fields the same "later wins" outright-replacement behaviour objects and primitives already get.) It isn't used for two reasons: it resolves imports by relative file path, not by profile name, so a name-to-path resolution step is needed regardless; and it has no awareness of the entries-beat-categories, most-specific-path-wins rule, which has to be bespoke either way. `resolve.ts` implements one flatten function, reused for both the `extends` chain and the outer cascade, rather than splitting the same conceptual merge across two implementations that could drift apart.
 
 ### Resolver mechanics
 
 For each `~/.claude` entry, walk the cascade to a boolean decision. If the decision is uniform for an entire subtree, symlink that directory in one shot. If a deeper path override splits the decision, materialise that directory as a real local directory instead of a symlink and recurse, repeating the check at each level — only directories with an actual split ever get exploded. A conditional entries key is never eligible for the uniform-symlink shortcut, since its decision can only be evaluated per-file.
 
-This logic is pure — `(claudeHome, cascade, path) => Map<path, boolean>` — and unit-tested without touching the filesystem before anything else is built on top of it.
+The pure decision logic — `(entryFacts, cascade, path) => Map<path, boolean>` — takes filesystem/git/env facts as an injected parameter (an entry manifest of path, mtime, and size; a resolved git branch; an env snapshot), rather than reading any of that itself. This is what makes it unit-testable with fake mtimes and a fake branch, per [Testing strategy](#testing-strategy), without touching a real filesystem or `git` — "pure" here means decoupled from I/O via dependency injection, not that no I/O happens anywhere in `resolve.ts`; something still has to walk `~/.claude` and stat its entries to build the manifest this function consumes.
+
+**Materialised directories need a write-through reconciliation step, not just a one-way split.** A directory the real Claude Code binary can create new children in at runtime — `history/projects/` chief among them, since Claude Code creates a new project subdirectory there the first time it sees an unfamiliar working directory — is exactly the kind of directory the tool's own conditional and per-project sharing examples recommend materialising. Once materialised, it stops being a live view of `~/.claude/projects/` and becomes a locally-built directory of symlinks (and further materialised subdirectories) frozen at resync time. Anything Claude Code subsequently writes into it — a brand-new project subdirectory, a new session file inside an existing one — lands as a real, untracked child of that materialised directory, not a symlink back to `~/.claude`: invisible to every other identity, and liable to be misread as stale scaffolding and pruned on a later resync.
+
+The resolver closes this by treating every materialised directory as a two-way sync point, not a one-way snapshot: on every resync, before making a fresh split/uniform decision for a materialised directory, it first diffs the directory's actual children against what the previous resync placed there. Any child that's a real file/directory rather than a symlink or a previously-materialised (and still-tracked) subdirectory is new data Claude Code wrote since the last resync — it gets moved back into the corresponding real path under `~/.claude` first, so it's never lost, and only then does the resolver re-run the category/entries decision for it (which may immediately symlink it back in, if the resolved state says to share it). This reconciliation pass is what keeps "materialise when split, symlink when uniform" safe to apply to a directory the underlying tool itself writes into.
+
+The reverse direction matters just as much: a directory materialised because of a split whose cause later disappears (a profile edit removes the entry override that split it, say) collapses back into a single plain symlink on the next resync, rather than being left behind as permanent local scaffolding. This is the same "compare against prior farm state, update only what changed" logic that makes every resync fast in the common case, applied to the one case where a subtree's resolved shape needs to get simpler, not just different.
 
 ### Build (Node SEA)
 
 Bundle `src/cli.ts` to a single file with esbuild, generate the SEA blob with `node --experimental-sea-config`, then inject it into a copy of the Node binary with `postject`. Confirm the exact current steps against up-to-date Node documentation before implementing — the SEA feature is still evolving between Node releases. Initial target platforms are macOS arm64 and x64, built in CI on tag push and published as GitHub Release assets; add others only if actually needed.
+
+The published JSON Schemas under `schema/` should self-reference (and, if ever submitted to a public schema catalog, be registered) via a version-pinned GitHub Release asset URL, the same pattern already used for [installing the binaries](#install) — never a live branch reference, which silently changes underneath every consumer on every push with no way to pin a version.
 
 ## Testing strategy
 
@@ -371,15 +401,16 @@ Bundle `src/cli.ts` to a single file with esbuild, generate the SEA blob with `n
 
 - Each cascade layer overriding the last; path overrides beating their parent category
 - Directory rules folding correctly for nested paths, and correctly composing configuration profiles mid-tree
-- The `secret` category being unconditionally un-overridable
+- The `secret` category being unconditionally un-overridable — including an explicit `entries` override attempt targeting a `secret`-category file, not only a bare `categories: { secret: true }` toggle, since the two-phase algorithm's usual "entries beat categories" rule does not apply to this one category
 - Committed `.claude-use.json`/`.claude-use.local.json` files at different tree depths folding shallowest-to-deepest like local directory rules, composing correctly when both apply to the same directory
 - Glob patterns matching correctly against literal `~/.claude/projects/` directory names, never attempting to decode a name back to a real path
-- Multi-level and diamond `extends` chains resolving correctly
+- Multi-level and diamond `extends` chains resolving correctly, and a circular `extends` definition (`a` → `b` → `a`) being detected and rejected by the walker rather than looping or stack-overflowing
 - One identity producing different resolved states under two different configuration profiles, with no leakage between them
-- The exact two-phase merge algorithm: a shallow layer's specific entry surviving a later, deeper layer's blanket category flip on the same category; an exact literal key beating a glob from an earlier layer; two globs from different layers resolving to the later layer's value; two layers setting the identical category resolving to plain last-layer-wins
-- Conditional entries with injectable/fake mtimes (not real filesystem timestamps, so tests aren't time-dependent or slow) — a `newerThan` condition including a fresh file and excluding a stale one under the same glob, and a conditionally-matched subtree always being materialised rather than symlinked
+- The exact two-phase merge algorithm: a shallow layer's specific entry surviving a later, deeper layer's blanket category flip on the same category; an exact literal key beating a glob from an earlier layer; two globs from different layers resolving to the later layer's value; two globs from the *same* layer resolving by longest-literal-prefix and then source order; two layers setting the identical category resolving to plain last-layer-wins
+- Conditional entries with injectable/fake mtimes, a fake resolved branch, and a fake env snapshot (never real filesystem/git/environment state, so tests aren't time-dependent, git-dependent, or slow) — a `newerThan` condition including a fresh file and excluding a stale one under the same glob, a `branch` condition applying only on a matching branch, an `env` condition applying only when the right variable is set, and a conditionally-matched subtree always being materialised rather than symlinked
+- A materialised directory reconciling any real (non-symlink) children written since the last resync back into `~/.claude` before re-deciding, and collapsing back into a plain symlink once its split condition no longer holds
 
-`launcher.ts`, `identityManager.ts`, `configProfiles.ts`, `directoryRules.ts`, and `configure.ts` stay thin adapters over `resolve.ts`, so most correctness lives in code that never touches the filesystem or a terminal.
+`identityManager.ts`, `configProfiles.ts`, `directoryRules.ts`, and `configure.ts` stay thin adapters over `resolve.ts`, so most of their correctness rides on the resolver's own test coverage above. `launcher.ts` carries two separately-testable responsibilities of its own that aren't covered by `resolve.ts`'s purity, and need their own coverage: translating a resolved `Map<path, boolean>` into real filesystem side effects (creating/removing symlinks, materialising/collapsing directories, diffing against the farm's prior state, the per-identity lock and atomic-swap behaviour from [Directory rules](#directory-rules)) against a fake/in-memory filesystem; and invoking the real `claude` binary via an injected `spawn` function (argv/env construction, exit-code propagation), never a real subprocess in a unit test.
 
 ## Contributing
 
