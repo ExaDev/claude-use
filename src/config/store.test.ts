@@ -104,7 +104,7 @@ describe("store.ts", () => {
       };
       writeJsonAtomic(filePath, { name: "acme" }, observingFs);
       expect(seenTempPaths).toHaveLength(1);
-      expect(path.dirname(seenTempPaths[0] as string)).toBe(dir);
+      expect(path.dirname(seenTempPaths[0]!)).toBe(dir);
     });
 
     it("writeTextAtomic writes plain text, not JSON-wrapped", () => {
@@ -138,14 +138,16 @@ describe("store.ts", () => {
     it("throws ConfigValidationError when the merged result fails validation", () => {
       const filePath = path.join(dir, "profile.json");
       writeJsonAtomic(filePath, { name: "acme" });
-      expect(() => applyPatch(filePath, schema, { count: "nope" } as never)).toThrow(ConfigValidationError);
+      // @ts-expect-error deliberately wrong-typed patch, to confirm runtime validation catches it
+      expect(() => applyPatch(filePath, schema, { count: "nope" })).toThrow(ConfigValidationError);
     });
 
     it("does not mutate the on-disk file at all when the patch fails validation", () => {
       const filePath = path.join(dir, "profile.json");
       writeJsonAtomic(filePath, { name: "acme" });
       const before = fs.readFileSync(filePath, "utf8");
-      expect(() => applyPatch(filePath, schema, { count: "nope" } as never)).toThrow();
+      // @ts-expect-error deliberately wrong-typed patch, to confirm runtime validation catches it
+      expect(() => applyPatch(filePath, schema, { count: "nope" })).toThrow();
       expect(fs.readFileSync(filePath, "utf8")).toBe(before);
     });
 

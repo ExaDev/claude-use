@@ -12,12 +12,12 @@ export type OverridableCategory = (typeof OVERRIDABLE_CATEGORIES)[number];
 
 /** True when `name` is one of the four categories a configuration layer may toggle. */
 export function isOverridableCategory(name: string): name is OverridableCategory {
-  return (OVERRIDABLE_CATEGORIES as readonly string[]).includes(name);
+  return OVERRIDABLE_CATEGORIES.some((category) => category === name);
 }
 
 /** True when `name` is any of the five classification categories, including `secret`. */
 export function isCategoryName(name: string): name is CategoryName {
-  return (CATEGORY_NAMES as readonly string[]).includes(name);
+  return CATEGORY_NAMES.some((category) => category === name);
 }
 
 /**

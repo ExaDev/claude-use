@@ -33,7 +33,7 @@ export function captureEntryOrder(value: unknown): readonly string[] {
   if (!isRecord(value)) {
     return [];
   }
-  const entries = value["entries"];
+  const entries = value.entries;
   if (!isRecord(entries)) {
     return [];
   }
@@ -45,7 +45,7 @@ export function captureRuleEntryOrders(value: unknown): readonly (readonly strin
   if (!isRecord(value)) {
     return [];
   }
-  const rules = value["rules"];
+  const rules = value.rules;
   if (!Array.isArray(rules)) {
     return [];
   }
@@ -65,16 +65,16 @@ export class ConfigValidationError extends Error {
 }
 
 /** Injected reader for a single config file, so tests never touch a real filesystem. Returns undefined when the file does not exist. */
-export type ConfigFileReader = (filepath: string) => unknown | undefined;
+export type ConfigFileReader = (filepath: string) => unknown;
 
 /** A cosmiconfig-backed reader: loads and parses one file by path, returning undefined when it is missing or empty. */
 export function cosmiconfigReader(explorer: PublicExplorerSync = createExplorer()): ConfigFileReader {
-  return (filepath: string): unknown | undefined => {
+  return (filepath: string): unknown => {
     let result;
     try {
       result = explorer.load(filepath);
     } catch (error) {
-      const code = isRecord(error) ? error["code"] : undefined;
+      const code = isRecord(error) ? error.code : undefined;
       if (code === "ENOENT") {
         return undefined;
       }
@@ -107,7 +107,7 @@ export function loadConfigFile<S extends z.ZodType>(
   }
   return {
     filepath,
-    config: parsed.data as z.infer<S>,
+    config: parsed.data,
     entryOrder: captureEntryOrder(raw),
     ruleEntryOrders: captureRuleEntryOrders(raw),
   };

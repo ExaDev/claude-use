@@ -26,7 +26,7 @@ function isEnoent(error: unknown): boolean {
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
-    (error as { code: unknown }).code === "ENOENT"
+    error.code === "ENOENT"
   );
 }
 
@@ -81,7 +81,7 @@ export function readJson<S extends z.ZodType>(
   if (!result.success) {
     throw new ConfigValidationError(filePath, result.error.issues);
   }
-  return result.data as z.infer<S>;
+  return result.data;
 }
 
 /**
@@ -137,7 +137,7 @@ export function applyPatch<S extends z.ZodType>(
   if (!result.success) {
     throw new ConfigValidationError(filePath, result.error.issues);
   }
-  const validated = result.data as z.infer<S>;
+  const validated = result.data;
   writeJsonAtomic(filePath, validated, storeFs);
   return validated;
 }

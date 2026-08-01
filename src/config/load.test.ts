@@ -36,17 +36,17 @@ describe("loadConfigFile", () => {
   });
 
   it("captures the entries key insertion order from the raw parsed JSON, not from the validated clone", () => {
-    const raw = JSON.parse(
+    const raw: unknown = JSON.parse(
       '{"entries":{"knowledge/skills/z":true,"knowledge/skills/a":true,"knowledge/skills/m":true}}',
-    ) as unknown;
+    );
     const loaded = loadConfigFile("/cfg/order.json", ConfigProfileSchema, reader({ "/cfg/order.json": raw }));
     expect(loaded?.entryOrder).toEqual(["knowledge/skills/z", "knowledge/skills/a", "knowledge/skills/m"]);
   });
 
   it("captures each rule's own entries order for a directory-rules file", () => {
-    const raw = JSON.parse(
+    const raw: unknown = JSON.parse(
       '{"rules":[{"path":"/a","entries":{"knowledge/b":true,"knowledge/a":true}},{"path":"/b"}]}',
-    ) as unknown;
+    );
     const loaded = loadConfigFile("/cfg/rules.json", DirectoryRulesSchema, reader({ "/cfg/rules.json": raw }));
     expect(loaded?.ruleEntryOrders).toEqual([["knowledge/b", "knowledge/a"], []]);
   });

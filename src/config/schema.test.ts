@@ -21,6 +21,11 @@ import {
   WhenSchema,
 } from "./schema";
 
+/** Narrows `z.toJSONSchema`'s emitted output (typed as `unknown` by Zod) down to a plain object so tests can inspect its fields without a type assertion. */
+function isJsonSchemaRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 describe("CategoryMapSchema", () => {
   it("accepts the four overridable categories", () => {
     expect(CategoryMapSchema.parse({ runtime: true, history: false, knowledge: true, settings: false })).toEqual({
@@ -243,12 +248,16 @@ describe("JSON Schema generation", () => {
   });
 
   it("emits real propertyNames validation for entries keys, which a bare path key could not express", () => {
-    const jsonSchema = z.toJSONSchema(EntriesSchema, { io: "input" }) as { propertyNames?: { pattern?: string } };
-    expect(jsonSchema.propertyNames?.pattern).toBeTypeOf("string");
+    const jsonSchema = z.toJSONSchema(EntriesSchema, { io: "input" });
+    if (!isJsonSchemaRecord(jsonSchema) || !isJsonSchemaRecord(jsonSchema.propertyNames)) {
+      throw new Error("expected a propertyNames object in the emitted JSON Schema");
+    }
+    expect(jsonSchema.propertyNames.pattern).toBeTypeOf("string");
   });
 
   it("leaves a defaulted key optional in the input schema rather than marking it required", () => {
-    const jsonSchema = z.toJSONSchema(IdentitySchema, { io: "input" }) as { required?: string[] };
-    expect(jsonSchema.required ?? []).not.toContain("allowAmbientCredential");
+    const jsonSchema = z.toJSONSchema(IdentitySchema, { io: "input" });
+    const required = isJsonSchemaRecord(jsonSchema) && Array.isArray(jsonSchema.required) ? jsonSchema.required : [];
+    expect(required).not.toContain("allowAmbientCredential");
   });
 });
