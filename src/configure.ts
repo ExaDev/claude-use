@@ -9,13 +9,11 @@ import { cosmiconfigReader } from "./config/load";
 import {
   CategoryClassificationOverlaySchema,
   CategoryClassificationSchema,
-  DirectoryRulesSchema,
   OVERRIDABLE_CATEGORIES,
   PortableConfigSchema,
   SHIPPED_CATEGORY_DEFAULTS,
   type CategoryMap,
   type CategoryName,
-  type DirectoryRule,
   type Entries,
   type OverridableCategory,
 } from "./config/schema";
@@ -74,7 +72,7 @@ export interface PromptsPort {
 }
 
 /**
- * Widens a `PromptOption<Value>[]` to plain `PromptOption<string>[]` (a legitimate widening — `Value extends string`, so every field already fits) before handing it to `@clack/prompts`. `Option<Value>` in `@clack/prompts`' own types is a conditional type keyed on whether `Value extends Primitive`, which TypeScript can only reduce once `Value` is a concrete type — calling `clack.select`/`clack.multiselect` with `string` (rather than our still-generic `Value`) gives it exactly that, and the two casts back to `Value`/`readonly Value[]` on each result are the justified, narrow piece this buys back: every value `@clack/prompts` can possibly return came from the `options` array we just gave it, so it is provably one of `Value`'s own literals at runtime, even though TypeScript cannot see that through the library's own generic boundary.
+ * Widens a `PromptOption<Value>[]` to plain `PromptOption<string>[]` (a legitimate widening — `Value extends string`, so every field already fits) before handing it to `@clack/prompts`. `Option<Value>` in `@clack/prompts`' own types is a conditional type keyed on whether `Value extends Primitive`, which TypeScript can only reduce once `Value` is a concrete type — calling `clack.select`/`clack.multiselect` with `string` (rather than our still-generic `Value`) gives it exactly that.
  */
 function toClackOptions(options: readonly PromptOption<string>[]): { value: string; label: string; hint?: string; disabled?: boolean }[] {
   return options.map((option) => ({
@@ -85,6 +83,11 @@ function toClackOptions(options: readonly PromptOption<string>[]): { value: stri
   }));
 }
 
+/** True when `value` is one of `options`' own literal values — every value `@clack/prompts` can possibly return came from the `options` array it was given, so this is a real, checkable narrowing back to `Value` rather than an assumed one. */
+function isKnownOptionValue<Value extends string>(value: string, options: readonly PromptOption<Value>[]): value is Value {
+  return options.some((option) => option.value === value);
+}
+
 export const realPromptsPort: PromptsPort = {
   select: <Value extends string>(params: SelectParams<Value>) =>
     clack
@@ -92,7 +95,12 @@ export const realPromptsPort: PromptsPort = {
         message: params.message,
         options: toClackOptions(params.options),
       })
-      .then((value) => value as Value | symbol),
+      .then((value): Value | symbol => {
+        if (typeof value === "symbol" || isKnownOptionValue(value, params.options)) {
+          return value;
+        }
+        throw new Error(`@clack/prompts select() returned a value not present in the given options: ${value}`);
+      }),
   multiselect: <Value extends string>(params: MultiselectParams<Value>) =>
     clack
       .multiselect({
@@ -100,7 +108,12 @@ export const realPromptsPort: PromptsPort = {
         options: toClackOptions(params.options),
         ...(params.initialValues === undefined ? {} : { initialValues: [...params.initialValues] }),
       })
-      .then((value) => value as readonly Value[] | symbol),
+      .then((value): readonly Value[] | symbol => {
+        if (typeof value === "symbol" || value.every((item) => isKnownOptionValue(item, params.options))) {
+          return value;
+        }
+        throw new Error(`@clack/prompts multiselect() returned a value not present in the given options: ${value.join(", ")}`);
+      }),
   isCancel: clack.isCancel,
   cancel: clack.cancel,
   intro: clack.intro,
@@ -208,7 +221,7 @@ function writeCategoryPatch(paths: LayoutPaths, target: WriteTarget, patch: Read
       if (index === -1) {
         throw new Error(`Directory rule for "${target.rulePath}" no longer exists.`);
       }
-      const existingRule = rules.rules[index] as DirectoryRule;
+      const existingRule = rules.rules[index]!;
       const merged: CategoryMap = { ...existingRule.categories, ...patch };
       const nextRules = [...rules.rules];
       nextRules[index] = { ...existingRule, categories: merged };
@@ -235,7 +248,7 @@ function writeEntriesPatch(paths: LayoutPaths, target: WriteTarget, patch: Reado
       if (index === -1) {
         throw new Error(`Directory rule for "${target.rulePath}" no longer exists.`);
       }
-      const existingRule = rules.rules[index] as DirectoryRule;
+      const existingRule = rules.rules[index]!;
       const merged: Entries = { ...existingRule.entries, ...patch };
       const nextRules = [...rules.rules];
       nextRules[index] = { ...existingRule, entries: merged };
@@ -305,12 +318,18 @@ function resolveWriteTarget(context: ConfigureContext): WriteTarget {
   });
 }
 
+/** Builds a complete `Record<OverridableCategory, boolean>` in one literal shot from a partial lookup plus shipped defaults — never an incrementally-filled object, so there is no need to assert its shape before every key lands. */
+function resolveCategoryState(get: (name: OverridableCategory) => boolean | undefined): Record<OverridableCategory, boolean> {
+  return {
+    runtime: get("runtime") ?? SHIPPED_CATEGORY_DEFAULTS.runtime,
+    history: get("history") ?? SHIPPED_CATEGORY_DEFAULTS.history,
+    knowledge: get("knowledge") ?? SHIPPED_CATEGORY_DEFAULTS.knowledge,
+    settings: get("settings") ?? SHIPPED_CATEGORY_DEFAULTS.settings,
+  };
+}
+
 function currentCategoryState(context: ConfigureContext): Record<OverridableCategory, boolean> {
-  const state = {} as Record<OverridableCategory, boolean>;
-  for (const name of OVERRIDABLE_CATEGORIES) {
-    state[name] = context.categoryOverrides.get(name) ?? SHIPPED_CATEGORY_DEFAULTS[name];
-  }
-  return state;
+  return resolveCategoryState((name) => context.categoryOverrides.get(name));
 }
 
 /**
@@ -438,10 +457,7 @@ async function runProfileDirectMode(context: ConfigureContext): Promise<void> {
   const profileName = chosen;
 
   const profile = readProfile(deps.paths, profileName) ?? {};
-  const current = {} as Record<OverridableCategory, boolean>;
-  for (const name of OVERRIDABLE_CATEGORIES) {
-    current[name] = profile.categories?.[name] ?? SHIPPED_CATEGORY_DEFAULTS[name];
-  }
+  const current = resolveCategoryState((name) => profile.categories?.[name]);
 
   const selected = await deps.prompts.multiselect({
     message: `Which categories should configuration profile "${profileName}" share?`,

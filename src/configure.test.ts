@@ -12,7 +12,9 @@ import {
   describeWriteTarget,
   runConfigure,
   type DirectoryLevelPresence,
+  type MultiselectParams,
   type PromptsPort,
+  type SelectParams,
 } from "./configure";
 
 const CANCEL = Symbol("cancel");
@@ -20,6 +22,8 @@ const CANCEL = Symbol("cancel");
 /** A scripted `PromptsPort`: each call to `select`/`multiselect` consumes the next entry from `answers`, in order. Records every prompt's message so a test can assert what was actually asked. */
 function scriptedPrompts(answers: readonly unknown[]): { readonly port: PromptsPort; readonly messages: string[] } {
   const messages: string[] = [];
+  // Records intro/outro/cancel calls so the port methods are real (not empty) stubs, without mixing lifecycle messages into `messages`, which several tests assert on with exact `toEqual` against prompt messages only.
+  const lifecycleCalls: string[] = [];
   let index = 0;
   const next = (): unknown => {
     const value = answers[index];
@@ -27,18 +31,20 @@ function scriptedPrompts(answers: readonly unknown[]): { readonly port: PromptsP
     return value;
   };
   const port: PromptsPort = {
-    select: async (params) => {
+    select: <Value extends string>(params: SelectParams<Value>): Promise<Value | symbol> => {
       messages.push(params.message);
-      return next() as never;
+      // @ts-expect-error test double: the scripted answer's shape is asserted by the test author, not statically provable against the generic Value
+      return Promise.resolve(next());
     },
-    multiselect: async (params) => {
+    multiselect: <Value extends string>(params: MultiselectParams<Value>): Promise<readonly Value[] | symbol> => {
       messages.push(params.message);
-      return next() as never;
+      // @ts-expect-error test double: the scripted answer's shape is asserted by the test author, not statically provable against the generic Value
+      return Promise.resolve(next());
     },
     isCancel: (value): value is symbol => typeof value === "symbol",
-    cancel: () => {},
-    intro: () => {},
-    outro: () => {},
+    cancel: (message) => lifecycleCalls.push(`cancel:${message ?? ""}`),
+    intro: (message) => lifecycleCalls.push(`intro:${message ?? ""}`),
+    outro: (message) => lifecycleCalls.push(`outro:${message ?? ""}`),
   };
   return { port, messages };
 }
