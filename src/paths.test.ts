@@ -1,0 +1,58 @@
+import path from "node:path";
+import { describe, expect, it } from "vitest";
+import { buildLayoutPaths, resolveClaudeUseHome, resolveLayoutPaths } from "./paths";
+
+describe("resolveClaudeUseHome", () => {
+  it("reads CLAUDE_USE_HOME from the environment", () => {
+    // vitest.config.ts sets CLAUDE_USE_HOME globally for every test in this project.
+    expect(resolveClaudeUseHome()).toBe(process.env.CLAUDE_USE_HOME);
+  });
+});
+
+describe("buildLayoutPaths", () => {
+  const root = "/tmp/some-throwaway-root";
+  const layout = buildLayoutPaths(root);
+
+  it("derives every sub-path under the given root", () => {
+    for (const value of Object.values(layout)) {
+      expect(path.resolve(value).startsWith(path.resolve(root))).toBe(true);
+    }
+  });
+
+  it("names the identities directory", () => {
+    expect(layout.identitiesDir).toBe(path.join(root, "identities"));
+  });
+
+  it("names the config-profiles directory", () => {
+    expect(layout.configProfilesDir).toBe(path.join(root, "config-profiles"));
+  });
+
+  it("names the directory-rules.json file", () => {
+    expect(layout.directoryRulesFile).toBe(path.join(root, "directory-rules.json"));
+  });
+
+  it("names the active-identity file", () => {
+    expect(layout.activeIdentityFile).toBe(path.join(root, "active-identity"));
+  });
+
+  it("names the global config.json file", () => {
+    expect(layout.globalConfigFile).toBe(path.join(root, "config.json"));
+  });
+
+  it("names the categories.local.json file", () => {
+    expect(layout.categoriesLocalFile).toBe(path.join(root, "categories.local.json"));
+  });
+});
+
+describe("resolveLayoutPaths", () => {
+  it("resolves every path under the test-scoped CLAUDE_USE_HOME root", () => {
+    const layout = resolveLayoutPaths();
+    const home = process.env.CLAUDE_USE_HOME;
+    expect(home).toBeDefined();
+    expect(layout.root).toBe(home);
+
+    for (const value of Object.values(layout)) {
+      expect(path.resolve(value).startsWith(path.resolve(home as string))).toBe(true);
+    }
+  });
+});
