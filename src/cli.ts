@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { Command } from "commander";
 
 import categoriesDefaultJson from "./config/categories.default.json";
+import packageJson from "../package.json";
 import { cosmiconfigReader } from "./config/load";
 import { CategoryClassificationOverlaySchema, CategoryClassificationSchema } from "./config/schema";
 import { readJson } from "./config/store";
@@ -37,7 +38,10 @@ import {
  */
 function buildClaudeUseProgram(): Command {
   const program = new Command();
-  program.name("claude-use").description("Profile manager for Claude Code identities and configuration profiles.");
+  program
+    .name("claude-use")
+    .description("Profile manager for Claude Code identities and configuration profiles.")
+    .version(packageJson.version);
 
   const paths = resolveLayoutPaths();
   registerIdentityCommand(program, paths);
