@@ -1,0 +1,21 @@
+# Secret-redaction filter drivers.
+# Applied to every text file class that could carry a pasted secret in a code
+# snippet or config example. Binaries are excluded so the text filter never
+# mangles them. Requires the local git config from .githooks/git-filter-clean
+# (see README) — a fresh clone must re-run that setup step, git config is
+# never committed.
+*.md     filter=secrets merge=text
+*.ts     filter=secrets merge=text
+*.tsx    filter=secrets merge=text
+*.mts    filter=secrets merge=text
+*.mjs    filter=secrets merge=text
+*.txt    filter=secrets merge=text
+*.json   filter=secrets merge=text
+*.jsonc  filter=secrets merge=text
+*.yaml   filter=secrets merge=text
+*.yml    filter=secrets merge=text
+*.toml   filter=secrets merge=text
+*.sql    filter=secrets merge=text
+*.sh     filter=secrets merge=text
+*.bash   filter=secrets merge=text
+*.diff   filter=secrets merge=text

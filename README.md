@@ -98,7 +98,7 @@ A configuration profile is a named, reusable JSON file at `~/.claude-use/config-
 Profiles compose hierarchically via `extends`:
 
 ```json
-{ "extends": ["base", "work"], "categories": { "history": false } }
+{"extends":["base","work"],"categories":{"history":false}}
 ```
 
 Resolving a profile means resolving its `extends` chain first, base to specific, then applying the profile's own overrides last — so a profile only has to state what's different from what it extends, and a whole tree of profiles (`base` → `work` → `client-strict` → one profile per client) shares as much as possible.
@@ -134,7 +134,7 @@ One more boundary worth naming: an IDE extension's own UI-level preferences (VS 
 Any configuration layer — a profile, a directory rule, a committed `.claude-use.json` — can override sharing for one specific path, not just a whole category, and path keys may use glob wildcards:
 
 ```json
-{ "categories": { "knowledge": false }, "entries": { "knowledge/skills/commit": true } }
+{"categories":{"knowledge":false},"entries":{"knowledge/skills/commit":true}}
 ```
 
 shares exactly one skill even though the rest of `knowledge` is closed. The most specific matching path always wins.
@@ -146,11 +146,11 @@ All path and glob matching in this design (`entries` keys, directory-rule `path`
 Both an entries value and a whole rule can be made conditional instead of a flat boolean:
 
 ```json
-{ "entries": { "history/projects/*": { "value": true, "when": { "newerThan": "90d" } } } }
+{"entries":{"history/projects/*":{"value":true,"when":{"newerThan":"90d"}}}}
 ```
 
 ```json
-{ "path": "~/work/clients/acme", "categories": { "history": false }, "when": { "branch": "client/*" } }
+{"path":"~/work/clients/acme","categories":{"history":false},"when":{"branch":"client/*"}}
 ```
 
 | Condition | Meaning |
@@ -193,7 +193,7 @@ Modelled on how Claude Code itself resolves nested `CLAUDE.md` files: walking up
   "rules": [
     { "path": "~/work",                "configProfile": "work-default" },
     { "path": "~/work/clients",         "configProfile": "client-strict", "identity": "work" },
-    { "path": "~/work/clients/example", "entries": { "knowledge/skills/example-notes": true } }
+{"path":"~/work/clients/example","entries":{"knowledge/skills/example-notes":true}}
   ]
 }
 ```
@@ -215,7 +215,7 @@ The walk stops at (and includes) the user's home directory by default, configura
 A `.claude-use.json` is self-contained by default:
 
 ```json
-{ "categories": { "history": false }, "entries": { "knowledge/skills/commit": true } }
+{"categories":{"history":false},"entries":{"knowledge/skills/commit":true}}
 ```
 
 It may also reference a named `configProfile`, resolved first against any profile shipped in a sibling `.claude-use/config-profiles/` directory in the same repo, falling back to the user's own local `~/.claude-use/config-profiles/` — so a team can keep everything inline and portable, or ship a small reusable profile library alongside the pointer file.
@@ -237,7 +237,7 @@ The encoding is also **many-to-one, not merely hard to decode**: `~/work/clients
 This forward transform only applies to entries keys under the fixed `history/projects/` prefix — nowhere else. Everywhere else in this design (directory-rule `path` fields, every other `entries` key), a path is always a literal filesystem path or a normal glob over one, matched exactly as written; **a directory-rule `path` is never matched against `~/.claude/projects/` and never gets this transform** — directory rules only ever match ancestors of `$PWD` (see [Directory rules](#directory-rules)). The one place the transform applies is deliberately narrow: anything written after the literal `history/projects/` prefix in an `entries` key is a real absolute path (optionally globbed), not a literal child directory name, since `history/projects/`'s only real children are Claude Code's own encoded directory names — there's nothing else meaningful to reference there. For example:
 
 ```json
-{ "entries": { "history/projects/~/work/clients/*": true } }
+{"entries":{"history/projects/~/work/clients/*":true}}
 ```
 
 shares exactly the project-history subdirectories for every real path under `~/work/clients/`, without hand-listing each project's exact encoded name — `claude-use` encodes the `~/work/clients/*` portion the same way Claude Code names its own directories, then matches it against the literal directory names present under `~/.claude/projects/`. This is narrower and correct where the earlier, broader-sounding `categories: { history: true }` on a whole directory would not be: that opens the entire `history` category (sessions, tasks, transcripts, and everything else in the [category table](#category-based-sharing)), not just `projects`.
@@ -344,12 +344,12 @@ It also runs three checks that don't depend on `path` at all, every time, so a r
 
 ```json
 // ~/.claude-use/config-profiles/client-acme.json
-{ "extends": ["client-base"] }
+{"extends":["client-base"]}
 ```
 
 ```json
 // ~/.claude-use/config-profiles/client-widget.json
-{ "extends": ["client-base"] }
+{"extends":["client-base"]}
 ```
 
 ```json
@@ -357,7 +357,7 @@ It also runs three checks that don't depend on `path` at all, every time, so a r
 {
   "rules": [
     { "path": "~/work/clients/acme",   "configProfile": "client-acme" },
-    { "path": "~/work/clients/widget", "configProfile": "client-widget" }
+{"path":"~/work/clients/widget","configProfile":"client-widget"}
   ]
 }
 ```
@@ -369,7 +369,7 @@ One login serves both clients. History is fully isolated between them; `commit`,
 **Two logins, a directory rule as a safety net independent of which one is active.** A `personal` identity defaults to sharing history everywhere; a `work` identity defaults to not sharing it. One client is under a strict no-cross-contamination requirement:
 
 ```json
-{ "rules": [{ "path": "~/work/clients/regulated-client", "configProfile": "client-strict" }] }
+{"rules":[{"path":"~/work/clients/regulated-client","configProfile":"client-strict"}]}
 ```
 
 If `claude @personal` is ever run from inside that same directory — intentionally or by habit — the rule still applies, because rules aren't tied to identity. History stays off no matter which login is active.
@@ -377,7 +377,7 @@ If `claude @personal` is ever run from inside that same directory — intentiona
 **A team repo ships its own config; a new teammate needs zero setup.** A project commits `.claude-use.json` at its root:
 
 ```json
-{ "categories": { "history": false }, "entries": { "knowledge/skills/commit": true, "knowledge/skills/pr-feedback": true } }
+{"categories":{"history":false},"entries":{"knowledge/skills/commit":true,"knowledge/skills/pr-feedback":true}}
 ```
 
 A new teammate installs `claude-use`, creates their own identity, clones the repo, and runs `claude` from inside it — they get the isolation-plus-shared-skills behaviour immediately, with no local configuration. If they want to see their own past sessions there too, that's a personal, local addition that composes on top of the committed file.
@@ -388,7 +388,7 @@ A new teammate installs `claude-use`, creates their own identity, clones the rep
 {
   "rules": [
     { "path": "~/oss",                     "categories": { "history": true } },
-    { "path": "~/oss/private-experiments", "categories": { "history": false } }
+{"path":"~/oss/private-experiments","categories":{"history":false}}
   ]
 }
 ```
@@ -543,12 +543,24 @@ The published JSON Schemas under `schema/` should self-reference (and, if ever s
 ```bash
 pnpm install     # install dependencies
 pnpm typecheck   # tsc --noEmit
+pnpm lint        # eslint . --max-warnings 0
 pnpm test        # vitest run
 pnpm build       # bundle src/cli.ts with esbuild, then node --build-sea= (see Build (Node SEA) above) — needs Node >= v25.5.0 with SEA support (not Homebrew's build, see the gotcha above)
 pnpm schema      # regenerate schema/*.schema.json from src/config/schema.ts; CI fails if this drifts from what's committed
 ```
 
 Every test run gets `CLAUDE_USE_HOME` set to a throwaway directory by `vitest.config.mts`, and a Vitest setup file (`src/test-setup.ts`) refuses to let any test run at all if that variable is unset or resolves to the real `~/.claude-use` — there is no path by which the test suite can touch a real identity. A farm test that also needs a canonical `~/.claude` to resync against injects its own fake filesystem port rather than touching a real path. Manual, non-test exploration of a locally built binary should follow the same discipline: export `CLAUDE_USE_HOME` (and, if exercising a real farm resync, `CLAUDE_USE_CLAUDE_HOME`) to point at scratch directories, never at your own real identities.
+
+Commits are gated by Husky hooks (`pnpm install` wires them up via the `prepare` script): `commit-msg` enforces conventional-commit format, `pre-commit` rejects merge/squash commits on `main` and runs `eslint --fix` on staged files via lint-staged, `pre-push` runs the full test suite. Both `pre-commit` and `pre-push` also reject a commit or push that deletes more than 100 files, as a guard against a sparse-checkout or partial-worktree bug landing a mass deletion.
+
+A fresh clone needs one extra step before committing anything. The repository routes text files through a secret-redaction clean filter (`.gitattributes`), and git stores filter definitions in `.git/config` rather than in the repository, so cloning does not bring them along:
+
+```sh
+git config filter.secrets.clean 'python3 .githooks/git-filter-clean'
+git config filter.secrets.smudge cat
+```
+
+Without this, `.gitattributes`' `filter=secrets` attribute resolves to nothing and content reaches the object store unredacted. Do not add a `diff.secrets.textconv` pointing at the same script: `git-filter-clean` is a stream filter (reads stdin, writes stdout), while a textconv driver is handed a path instead, so the script would sit waiting on a stdin nobody writes to — blocking forever under lint-staged on any commit touching a partially staged file.
 
 ## Contributing
 
