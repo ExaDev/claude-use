@@ -625,6 +625,8 @@ jobs:
           claude-use shim enable
           # This runner has no real downstream Claude Code install, so invoking `claude` -- which always forwards straight into the launcher pipeline, never special-casing --version -- deterministically fails at binary discovery. That failure is itself the proof the shim file exists, is executable, and correctly dispatches into the launcher rather than crashing for some unrelated reason.
           $output = claude --version 2>&1 | Out-String
+          Write-Host "claude --version exit code: $LASTEXITCODE"
+          Write-Host "claude --version output: $output"
           if ($LASTEXITCODE -eq 0) {
             Write-Host "error: 'claude' should not have found a downstream Claude Code binary in this CI environment"
             exit 1
