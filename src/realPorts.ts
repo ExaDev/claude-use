@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { isSea } from "node:sea";
 
 import { cosmiconfigReader } from "./config/load";
 import { discoverClaudeBinary, type DiscoveredClaudeBinary, type VersionsDirEntry } from "./versionDiscovery";
@@ -328,6 +329,20 @@ export function realOwnExecutablePath(): string {
     pathDirs: (process.env.PATH ?? "").split(path.delimiter).filter((dir) => dir !== ""),
     findExecutableInDir,
   });
+}
+
+/**
+ * Resolves the path to the actual file whose *content* is this running process — never a PATH-visible location, which can differ from the real content entirely (Scoop's own shim, a compiled proxy binary, sits at the PATH-visible location while the genuine claude-use binary lives elsewhere; see `resolveOwnExecutablePath`'s own doc comment for the full mechanism). This is what `enableClaudeShim`/`disableClaudeShim` must hardlink/copy from and compare inodes against — using `resolveOwnExecutablePath`'s redirected PATH-visible location for this would hardlink Scoop's generic shim proxy itself, not claude-use's real content, which is exactly the bug this function exists to avoid (confirmed against a real Scoop install: `shim enable` correctly placed `claude.exe` in `shims/`, but invoking it failed with Scoop's own "Cannot open shim file for read" error, because the hardlink's source was Scoop's proxy, paired via a `.shim` config file keyed to its *original* filename).
+ *
+ * `node:sea`'s `isSea()` is the correct, documented way to distinguish the two operating modes this tool ships in, rather than inferring it from `argv1`'s shape: for a single-executable-application build, `process.execPath` is always the real, fully-resolved running binary (confirmed: Windows `CreateProcess` with `lpApplicationName = null` still resolves to the genuine target file, the same one `execPath` reports, regardless of Scoop's separate PATH-visible proxy). For a plain Node script (the npm-published bundle), `execPath` would instead point at the Node interpreter itself — useless — so `argv1` (the shebang-resolved script path, reliable in this mode) is used instead.
+ */
+export function resolveContentSourcePath(env: { readonly isSea: boolean; readonly execPath: string; readonly argv1: string | undefined }): string {
+  return env.isSea ? env.execPath : (env.argv1 ?? env.execPath);
+}
+
+/** Real-wired convenience over `resolveContentSourcePath`. */
+export function realContentSourcePath(): string {
+  return resolveContentSourcePath({ isSea: isSea(), execPath: process.execPath, argv1: process.argv[1] });
 }
 
 /** Builds the real `resolveClaudeBinary` callback `runLauncher` needs: scans the real versions directory, then falls back to a real PATH search, excluding this tool's own install directory. */

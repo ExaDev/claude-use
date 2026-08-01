@@ -4,7 +4,7 @@ import type { Command } from "commander";
 import { z } from "zod";
 
 import { readJson, writeJsonAtomic } from "./config/store";
-import { findExecutableInDir, realOwnExecutablePath } from "./realPorts";
+import { findExecutableInDir, realContentSourcePath, realOwnExecutablePath } from "./realPorts";
 import type { LayoutPaths } from "./paths";
 
 /** The claude-shim.json marker's own shape: never hand-edited, so it lives here rather than in `src/config/schema.ts`'s user-editable schemas (and is correctly excluded from `scripts/gen-schema.mts`'s published-schema generation, which only ever imports from that file). */
@@ -31,9 +31,9 @@ export class ForeignClaudeEntryError extends Error {
 
 /** Raised by enableClaudeShim when the running executable cannot possibly be turned into a directly-runnable `claude` command: an npm/Node install of claude-use on Windows, which has no bundled .exe and no shebang-based dispatch the way POSIX does. Not bypassed by --force — this isn't a safety refusal, it's "this would produce a broken file." */
 export class UnsupportedShimSourceError extends Error {
-  constructor(readonly ownExecutablePath: string) {
+  constructor(readonly contentSourcePath: string) {
     super(
-      `Cannot create a working \`claude\` command from ${ownExecutablePath} on Windows: an npm-installed ` +
+      `Cannot create a working \`claude\` command from ${contentSourcePath} on Windows: an npm-installed ` +
         "claude-use running under Node.js has no .exe to hardlink/copy, and Windows has no shebang-based " +
         "dispatch the way POSIX does. Install claude-use via Scoop instead (see README), which ships a real " +
         "claude-use.exe this command can link from.",
@@ -98,8 +98,10 @@ export const nodeLinkFs: LinkFs = { link: fs.linkSync, copyFile: fs.copyFileSync
 /** Inputs to `enableClaudeShim`. */
 export interface EnableShimParams {
   readonly paths: LayoutPaths;
-  /** `realOwnExecutablePath()` (see realPorts.ts), supplied by the wiring layer. */
+  /** `realOwnExecutablePath()` (see realPorts.ts) — the PATH-visible location `claude` should be placed alongside, supplied by the wiring layer. Deliberately separate from `contentSourcePath` below: for a Scoop install, this is `~/scoop/shims/claude-use.exe` (Scoop's own proxy binary, not claude-use's real content), and using it as the link/copy source would hardlink that proxy instead of the genuine executable. */
   readonly ownExecutablePath: string;
+  /** `realContentSourcePath()` (see realPorts.ts) — the actual file whose content is this running process, used as the hardlink/copy source and for "is the existing target mine" inode comparisons. */
+  readonly contentSourcePath: string;
   /** process.platform, supplied by the wiring layer — only used for the Windows/npm-source guard. */
   readonly platform: string;
   readonly dir?: string;
@@ -119,19 +121,19 @@ export interface EnableShimResult {
  * A target that already exists is only ever overwritten when it's provably claude-use's own doing — either it shares an inode with the currently-running executable (covers a pre-existing install from before this feature existed, where no marker could possibly exist yet), or claude-shim.json records this exact target path (covers refreshing after a claude-use upgrade, when the old target's inode no longer matches the new binary's content). Anything else is refused unless `force` is set — this could otherwise silently delete or overwrite someone's genuine, unrelated `claude` binary.
  */
 export function enableClaudeShim(params: EnableShimParams, linkFs: LinkFs = nodeLinkFs): EnableShimResult {
-  const realOwnPath = fs.realpathSync(params.ownExecutablePath);
+  const realContentPath = fs.realpathSync(params.contentSourcePath);
 
-  if (params.platform === "win32" && !realOwnPath.toLowerCase().endsWith(".exe")) {
-    throw new UnsupportedShimSourceError(realOwnPath);
+  if (params.platform === "win32" && !realContentPath.toLowerCase().endsWith(".exe")) {
+    throw new UnsupportedShimSourceError(realContentPath);
   }
 
-  // Deliberately targets alongside the executable *as invoked* (params.ownExecutablePath), not its realpath: a package manager's own PATH-visible entry is very often a symlink into some other directory entirely (e.g. Homebrew's `/opt/homebrew/bin/claude-use` -> `../Cellar/claude-use/<version>/bin/claude-use`), and the new `claude` shim needs to land next to that PATH-visible symlink, not buried in the Cellar keg alongside the dereferenced target where nothing on PATH would ever find it. The link *source* below still uses the resolved realOwnPath, so the hardlink/copy is always of the real file, never a symlink-of-a-symlink.
+  // Deliberately targets alongside the executable *as invoked* (params.ownExecutablePath), not its realpath: a package manager's own PATH-visible entry is very often a symlink into some other directory entirely (e.g. Homebrew's `/opt/homebrew/bin/claude-use` -> `../Cellar/claude-use/<version>/bin/claude-use`), and the new `claude` shim needs to land next to that PATH-visible symlink, not buried in the Cellar keg alongside the dereferenced target where nothing on PATH would ever find it. The link *source* below uses realContentPath instead, so the hardlink/copy is always of claude-use's genuine content — never a symlink-of-a-symlink, and never a different PATH-visible proxy binary (Scoop's own shim) that merely happens to live at the placement location.
   const targetPath = resolveClaudeTargetPath(params.ownExecutablePath, params.dir);
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
 
   const existing = lstatOrUndefined(targetPath);
   if (existing !== undefined) {
-    const ownStat = fs.statSync(realOwnPath);
+    const ownStat = fs.statSync(realContentPath);
     const state = readJson(params.paths.claudeShimFile, ClaudeShimStateSchema);
     const sameInode = existing.dev === ownStat.dev && existing.ino === ownStat.ino;
     const markerMatches = state !== undefined && path.resolve(state.targetPath) === targetPath;
@@ -143,13 +145,13 @@ export function enableClaudeShim(params: EnableShimParams, linkFs: LinkFs = node
 
   let method: "hardlink" | "copy";
   try {
-    linkFs.link(realOwnPath, targetPath);
+    linkFs.link(realContentPath, targetPath);
     method = "hardlink";
   } catch (error) {
     if (!isCrossDeviceError(error)) {
       throw error;
     }
-    linkFs.copyFile(realOwnPath, targetPath);
+    linkFs.copyFile(realContentPath, targetPath);
     linkFs.chmod(targetPath, 0o755);
     method = "copy";
   }
@@ -168,15 +170,17 @@ export interface DisableShimResult {
 
 export interface DisableShimParams {
   readonly paths: LayoutPaths;
+  /** `realOwnExecutablePath()` — the PATH-visible location, used to derive the default target path. */
   readonly ownExecutablePath: string;
+  /** `realContentSourcePath()` — used for the "is the existing target mine" inode comparison; see `EnableShimParams` for why this must be separate from `ownExecutablePath`. */
+  readonly contentSourcePath: string;
   readonly dir?: string;
   readonly force: boolean;
 }
 
 /** The inverse of `enableClaudeShim`: removes the `claude` command it created, using the same "is this ours" safety check. A no-op, not an error, when nothing is enabled — including clearing a dangling marker whose target has since been deleted by other means. */
 export function disableClaudeShim(params: DisableShimParams): DisableShimResult {
-  // See enableClaudeShim's own comment: targetPath is derived from the executable as invoked, never its realpath, since a package manager's PATH-visible entry is often a symlink elsewhere (Homebrew's Cellar). realOwnPath is only used below to compare inodes for the "is this ours" safety check.
-  const realOwnPath = fs.realpathSync(params.ownExecutablePath);
+  const realContentPath = fs.realpathSync(params.contentSourcePath);
   const state = readJson(params.paths.claudeShimFile, ClaudeShimStateSchema);
   const targetPath =
     params.dir !== undefined
@@ -191,7 +195,7 @@ export function disableClaudeShim(params: DisableShimParams): DisableShimResult 
     return { action: "not-enabled", targetPath };
   }
 
-  const ownStat = fs.statSync(realOwnPath);
+  const ownStat = fs.statSync(realContentPath);
   const sameInode = existing.dev === ownStat.dev && existing.ino === ownStat.ino;
   const markerMatches = state !== undefined && path.resolve(state.targetPath) === targetPath;
   if (!sameInode && !markerMatches && !params.force) {
@@ -248,9 +252,11 @@ export function registerShimCommand(program: Command, paths: LayoutPaths): void 
     .option("--force", "Overwrite the target even if it doesn't look like claude-use's own doing.")
     .action((options: { dir?: string; force?: boolean }) => {
       const ownExecutablePath = realOwnExecutablePath();
+      const contentSourcePath = realContentSourcePath();
       const result = enableClaudeShim({
         paths,
         ownExecutablePath,
+        contentSourcePath,
         platform: process.platform,
         ...(options.dir === undefined ? {} : { dir: path.resolve(options.dir) }),
         force: options.force ?? false,
@@ -280,9 +286,11 @@ export function registerShimCommand(program: Command, paths: LayoutPaths): void 
     .option("--force", "Remove the target even if it doesn't look like claude-use's own doing.")
     .action((options: { dir?: string; force?: boolean }) => {
       const ownExecutablePath = realOwnExecutablePath();
+      const contentSourcePath = realContentSourcePath();
       const result = disableClaudeShim({
         paths,
         ownExecutablePath,
+        contentSourcePath,
         ...(options.dir === undefined ? {} : { dir: path.resolve(options.dir) }),
         force: options.force ?? false,
       });

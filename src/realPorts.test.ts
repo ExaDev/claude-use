@@ -1,7 +1,25 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { resolveExecutableCandidate, resolveOwnExecutablePath } from "./realPorts";
+import { resolveContentSourcePath, resolveExecutableCandidate, resolveOwnExecutablePath } from "./realPorts";
+
+describe("resolveContentSourcePath", () => {
+  it("uses execPath when running as a single executable application", () => {
+    const result = resolveContentSourcePath({ isSea: true, execPath: "/opt/homebrew/Cellar/claude-use/0.2.3/bin/claude-use", argv1: "claude-use" });
+    expect(result).toBe("/opt/homebrew/Cellar/claude-use/0.2.3/bin/claude-use");
+  });
+
+  it("uses argv1 (the shebang-resolved script path) when not a single executable application", () => {
+    // execPath here would be the Node interpreter itself, not claude-use's own content -- useless.
+    const result = resolveContentSourcePath({ isSea: false, execPath: "/usr/local/bin/node", argv1: "/usr/local/lib/node_modules/claude-use/dist/cli.cjs" });
+    expect(result).toBe("/usr/local/lib/node_modules/claude-use/dist/cli.cjs");
+  });
+
+  it("falls back to execPath when not a single executable application and argv1 is undefined", () => {
+    const result = resolveContentSourcePath({ isSea: false, execPath: "/usr/local/bin/node", argv1: undefined });
+    expect(result).toBe("/usr/local/bin/node");
+  });
+});
 
 describe("resolveExecutableCandidate", () => {
   it("on POSIX, requires the execute mode bits to be set", () => {
