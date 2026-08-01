@@ -286,7 +286,7 @@ jobs:
       - name: List release assets
         run: ls -la artifacts/ schema/
 
-      - uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             artifacts/claude-use-macos-arm64
