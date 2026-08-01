@@ -32,6 +32,21 @@ npm install -g claude-use   # to get both `claude` and `claude-use` as ordinary 
 
 `npx claude-use` runs the `claude-use` command specifically, because the package name matches one of its two bin names. `npx claude` will *not* reach this project's launcher — the plain `claude` package name on npm belongs to an unrelated, much older package — so use `npm install -g claude-use` (or `npx -p claude-use claude`) if you want the launcher itself without the GitHub Release binary.
 
+**Alternative: Homebrew (macOS and Linux).**
+
+```bash
+brew install ExaDev/claude-use/claude-use
+```
+
+**Alternative: Scoop (Windows).**
+
+```powershell
+scoop bucket add claude-use https://github.com/ExaDev/scoop-claude-use
+scoop install claude-use
+```
+
+All four channels install the same two commands, `claude` and `claude-use`. The GitHub Release binary, Homebrew, and Scoop all ship the self-contained Node SEA build (no Node.js installation required); npm ships the plain bundle and runs under whatever Node ≥ 22.12 you already have. macOS arm64, both Linux architectures, and Windows x64 are all targets Node core itself tests and verifies `--build-sea` against upstream; macOS x64 is published best-effort, since Node core does not test or verify single-executable-application support on that target.
+
 ## Quick start
 
 ```bash
@@ -454,9 +469,11 @@ scripts/
   gen-schema-core.ts        # shared schema-generation logic used by gen-schema.mts
   stamp-schema-ids.mjs      # rewrites $id to the real version-pinned release URL at publish time
 .github/workflows/
-  ci.yml                    # typecheck, test, and a `pnpm schema && git diff --exit-code schema/` drift guard
-  release.yml               # tag-triggered build (arm64 verified + x64 best-effort) and GitHub Release publish
-install.sh                 # places built binaries as `claude` and `claude-use` in ~/.local/bin
+  ci.yml                    # one workflow: check (every push/PR) plus the whole release pipeline, gated to
+                             # tag pushes only — five platform builds, npm publish, GitHub Release, and the
+                             # Homebrew/Scoop tap updates below
+install.sh                 # downloads the latest release's binary for the running OS/arch, verifies its
+                             # checksum, and installs it as both `claude` and `claude-use` in ~/.local/bin
 ```
 
 `schema.ts` models `categories` and `entries` differently despite their identical JSON-object appearance in every example above, because they have opposite key cardinality: `categories` only ever touches the four overridable names in the [category table](#category-based-sharing), so it's a closed `z.strictObject({ runtime: z.boolean().optional(), history: z.boolean().optional(), knowledge: z.boolean().optional(), settings: z.boolean().optional() })` — deliberately omitting `secret` from the shape entirely, so an attempted `secret` key is rejected at parse time rather than relying only on the runtime check described above — while `entries` is genuinely open-ended (any literal or glob path, each required to carry its `<category>/` prefix per the [Category-based sharing](#category-based-sharing) section above) and stays a `z.record(z.string().regex(ENTRY_KEY_RE), EntryValueSchema)`. The closed shape for `categories` also gives editors real key-name autocomplete from the published JSON Schema (the `schema/` directory above), which a record type can't offer.

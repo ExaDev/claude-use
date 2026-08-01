@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
 
 # Cancel superseded runs on the same ref so a fresh push doesn't queue behind a stale one.
@@ -32,3 +33,523 @@ jobs:
       # Regenerates schema/*.schema.json from src/config/schema.ts and fails if the committed files don't match byte-for-byte — the committed schemas are published artifacts, so they must never silently drift from the Zod schemas that define them.
       - run: pnpm schema
       - run: git diff --exit-code schema/
+
+  # Everything below this point is the release pipeline, gated to tag pushes only ("v*") — the jobs above already validate every ordinary push and PR, so a tag push is the only time this project builds five platform binaries, publishes npm, and updates two external tap repos.
+
+  # macOS arm64 is the only target Node core itself tests and verifies `--build-sea` against upstream. This job's binary is the one this project actually stands behind.
+  build-arm64:
+    name: Build (macOS arm64, verified)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check]
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26.5.0"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - run: mv dist/claude-use-sea dist/claude-use-macos-arm64
+      - run: shasum -a 256 dist/claude-use-macos-arm64 | awk '{print $1}' > dist/claude-use-macos-arm64.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claude-use-macos-arm64
+          path: |
+            dist/claude-use-macos-arm64
+            dist/claude-use-macos-arm64.sha256
+          retention-days: 7
+
+  # x64 is explicitly NOT part of Node core's own SEA test matrix (confirmed against current Node.js docs — see scripts/build.mts's own header comment). This job attempts the same build on an Intel runner as a best-effort convenience for x64 users, but nothing here proves the resulting binary is supported or even fully functional upstream — only that the build command itself completed and the smoke test below ran without crashing. It is published labelled as unverified, and this job is allowed to fail without blocking the release below.
+  build-x64-best-effort:
+    name: Build (macOS x64, best-effort, unverified)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check]
+    runs-on: macos-13
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26.5.0"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Smoke test (best-effort only — a pass here is not proof of upstream support)
+        run: ./dist/claude-use-sea --help || true
+
+      - run: mv dist/claude-use-sea dist/claude-use-macos-x64-unverified
+      - run: shasum -a 256 dist/claude-use-macos-x64-unverified | awk '{print $1}' > dist/claude-use-macos-x64-unverified.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claude-use-macos-x64-unverified
+          path: |
+            dist/claude-use-macos-x64-unverified
+            dist/claude-use-macos-x64-unverified.sha256
+          retention-days: 7
+
+  # Linux is tested by Node core against every distribution it supports except Alpine, and every architecture except s390x — x64 and arm64 are both fully within that verified set, unlike macOS x64 above.
+  build-linux-x64:
+    name: Build (Linux x64, verified)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26.5.0"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - run: mv dist/claude-use-sea dist/claude-use-linux-x64
+      - run: shasum -a 256 dist/claude-use-linux-x64 | awk '{print $1}' > dist/claude-use-linux-x64.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claude-use-linux-x64
+          path: |
+            dist/claude-use-linux-x64
+            dist/claude-use-linux-x64.sha256
+          retention-days: 7
+
+  build-linux-arm64:
+    name: Build (Linux arm64, verified)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check]
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26.5.0"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - run: mv dist/claude-use-sea dist/claude-use-linux-arm64
+      - run: shasum -a 256 dist/claude-use-linux-arm64 | awk '{print $1}' > dist/claude-use-linux-arm64.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claude-use-linux-arm64
+          path: |
+            dist/claude-use-linux-arm64
+            dist/claude-use-linux-arm64.sha256
+          retention-days: 7
+
+  # Node core documents full Windows support for --build-sea, unlike the macOS x64 caveat above.
+  build-windows-x64:
+    name: Build (Windows x64, verified)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26.5.0"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Package archive
+        shell: pwsh
+        run: |
+          Copy-Item dist/claude-use-sea.exe dist/claude-use.exe
+          Compress-Archive -Path dist/claude-use.exe -DestinationPath dist/claude-use-windows-x64.zip
+          $hash = (Get-FileHash -Algorithm SHA256 dist/claude-use-windows-x64.zip).Hash.ToLower()
+          $hash | Out-File -Encoding ascii -NoNewline dist/claude-use-windows-x64.zip.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claude-use-windows-x64
+          path: |
+            dist/claude-use-windows-x64.zip
+            dist/claude-use-windows-x64.zip.sha256
+          retention-days: 7
+
+  # Publishes the plain esbuild bundle (not a SEA binary — the npm-installed package runs under whatever Node the installer already has) as the `claude-use` npm package, so `npx claude-use` and `npm install -g claude-use` work alongside the GitHub Release binaries above. Uses npm's OIDC trusted publishing, the same pattern this org's other published packages use — no NPM_TOKEN secret. Trusted publishing itself is configured once, out of band, on the package's own npmjs.com settings page (linking this exact repo/workflow as an authorised publisher); nothing in this workflow can set that up.
+  publish-npm:
+    name: Publish npm package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    needs: [build-arm64]
+    permissions:
+      id-token: write # OIDC identity for npm trusted publishing (no NPM_TOKEN)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26.5.0"
+          cache: pnpm
+          # registry-url is deliberately absent. Setting it makes setup-node write an .npmrc containing an _authToken line, and that line wins over the OIDC token exchange -- so the setting that looks like it configures the registry is exactly the one that would stop trusted publishing working.
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Upgrade npm for OIDC trusted publishing (needs npm CLI >=11.5.1)
+        run: npm install -g npm@latest
+
+      - name: Set package version from the pushed tag
+        run: npm pkg set version="${GITHUB_REF_NAME#v}"
+
+      - run: pnpm build:bundle
+
+      - run: npm publish
+        env:
+          # Blanked, not omitted -- an inherited NPM_TOKEN/NODE_AUTH_TOKEN would otherwise be used in preference to the OIDC exchange.
+          NODE_AUTH_TOKEN: ""
+
+  release:
+    name: Publish GitHub Release
+    if: >
+      startsWith(github.ref, 'refs/tags/v') &&
+      always() &&
+      needs.build-arm64.result == 'success' &&
+      needs.build-linux-x64.result == 'success' &&
+      needs.build-linux-arm64.result == 'success' &&
+      needs.build-windows-x64.result == 'success'
+    needs: [build-arm64, build-x64-best-effort, build-linux-x64, build-linux-arm64, build-windows-x64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26.5.0"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Generate schema/*.schema.json fresh (it's already committed, but regenerating here keeps the release build honest — see the CI drift guard in the check job above) then stamp $id to this tag's own version-pinned release URL. This is deliberately distinct from install.sh's unpinned releases/latest/download/... URL: a schema an editor references long-term must stay put at whatever version it was written against.
+      - run: pnpm schema
+      - run: node scripts/stamp-schema-ids.mjs "${GITHUB_REF_NAME}"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: claude-use-macos-arm64
+          path: artifacts
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: claude-use-macos-x64-unverified
+          path: artifacts
+        continue-on-error: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: claude-use-linux-x64
+          path: artifacts
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: claude-use-linux-arm64
+          path: artifacts
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: claude-use-windows-x64
+          path: artifacts
+
+      - name: List release assets
+        run: ls -la artifacts/ schema/
+
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/claude-use-macos-arm64
+            artifacts/claude-use-macos-arm64.sha256
+            artifacts/claude-use-macos-x64-unverified
+            artifacts/claude-use-macos-x64-unverified.sha256
+            artifacts/claude-use-linux-x64
+            artifacts/claude-use-linux-x64.sha256
+            artifacts/claude-use-linux-arm64
+            artifacts/claude-use-linux-arm64.sha256
+            artifacts/claude-use-windows-x64.zip
+            artifacts/claude-use-windows-x64.zip.sha256
+            install.sh
+            schema/*.schema.json
+          generate_release_notes: true
+          body: |
+            ## Platform support
+
+            - **macOS arm64** (`claude-use-macos-arm64`): verified. Node core tests and supports `--build-sea` on this target.
+            - **macOS x64** (`claude-use-macos-x64-unverified`): best-effort only. Node core does not test or verify single-executable-application support on x64 — this binary is provided for convenience, not as a supported target. If it's missing from this release, the best-effort build failed and was skipped rather than silently shipping a broken binary.
+            - **Linux x64 / arm64** (`claude-use-linux-x64`, `claude-use-linux-arm64`): verified. Node core tests `--build-sea` on every Linux distribution it supports except Alpine, and every architecture except s390x.
+            - **Windows x64** (`claude-use-windows-x64.zip`): verified. Node core documents full Windows support for `--build-sea`.
+            - **npm** (`npx claude-use` / `npm install -g claude-use`): the plain bundle, not a SEA binary — runs under whatever Node ≥ 22.12 you already have.
+            - **Homebrew** (`brew install ExaDev/claude-use/claude-use`) and **Scoop** (`scoop install claude-use` after `scoop bucket add claude-use https://github.com/ExaDev/scoop-claude-use`) are updated automatically to this release by the jobs below.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Regenerates ExaDev/homebrew-claude-use's Formula/claude-use.rb from this release's own published checksums. See that repo's README for the deploy-key setup this depends on.
+  update-tap:
+    name: Update Homebrew tap
+    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
+    needs: [release, build-arm64, build-x64-best-effort, build-linux-x64, build-linux-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tap via SSH deploy key
+        uses: actions/checkout@v4
+        with:
+          repository: ExaDev/homebrew-claude-use
+          ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+
+      - name: Download and validate checksums
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          TAG_URL="https://github.com/ExaDev/claude-use/releases/download/${TAG}"
+          # --fail makes curl exit non-zero on 4xx/5xx so an error page's body never gets parsed as a checksum; --retry covers the small propagation window between the release job returning success and the asset being downloadable from the CDN. The regex validates what curl returned really is a 64-char lowercase hex digest before it goes anywhere near the generated formula.
+          fetch_sha() {
+            local name="$1" out="$2"
+            curl -sL --fail --retry 6 --retry-delay 5 --retry-all-errors \
+              "${TAG_URL}/${name}.sha256" | awk '{print $1}' > "${out}"
+            if ! [[ "$(cat "${out}")" =~ ^[0-9a-f]{64}$ ]]; then
+              echo "::error::checksum for ${name} not a 64-char hex digest: $(cat "${out}")"
+              exit 1
+            fi
+          }
+          fetch_sha claude-use-macos-arm64 sha-macos-arm64
+          fetch_sha claude-use-macos-x64-unverified sha-macos-x64
+          fetch_sha claude-use-linux-x64 sha-linux-x64
+          fetch_sha claude-use-linux-arm64 sha-linux-arm64
+
+      - name: Generate formula
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          MACOS_ARM_SHA=$(cat sha-macos-arm64)
+          MACOS_X64_SHA=$(cat sha-macos-x64)
+          LINUX_X64_SHA=$(cat sha-linux-x64)
+          LINUX_ARM_SHA=$(cat sha-linux-arm64)
+          mkdir -p Formula
+          cat > Formula/claude-use.rb <<EOF
+          # Auto-generated by claude-use's release workflow on every tagged release — do not edit manually.
+          class ClaudeUse < Formula
+            desc "Profile manager and launcher for Claude Code with per-directory sharing rules"
+            homepage "https://github.com/ExaDev/claude-use"
+            version "${VERSION}"
+            license "Apache-2.0"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/ExaDev/claude-use/releases/download/${TAG}/claude-use-macos-arm64"
+                sha256 "${MACOS_ARM_SHA}"
+              end
+              on_intel do
+                url "https://github.com/ExaDev/claude-use/releases/download/${TAG}/claude-use-macos-x64-unverified"
+                sha256 "${MACOS_X64_SHA}"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "https://github.com/ExaDev/claude-use/releases/download/${TAG}/claude-use-linux-arm64"
+                sha256 "${LINUX_ARM_SHA}"
+              end
+              on_intel do
+                url "https://github.com/ExaDev/claude-use/releases/download/${TAG}/claude-use-linux-x64"
+                sha256 "${LINUX_X64_SHA}"
+              end
+            end
+
+            def install
+              downloaded = Dir["claude-use-*"].first
+              bin.install downloaded => "claude-use"
+              chmod 0755, bin/"claude-use"
+              # \`claude\` and \`claude-use\` are the same compiled executable — it decides which behaviour to run based on the name it was invoked as, so both names need to reach it.
+              bin.install_symlink bin/"claude-use" => "claude"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("#{bin}/claude-use --version")
+            end
+          end
+          EOF
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/claude-use.rb
+          git diff --cached --quiet || git commit -m "chore: update formula to ${{ github.ref_name }}"
+          git push
+
+  # Regenerates ExaDev/scoop-claude-use's bucket/claude-use.json from this release's own published checksum. See that repo's README for the deploy-key setup this depends on.
+  update-scoop:
+    name: Update Scoop bucket
+    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
+    needs: [release, build-windows-x64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout bucket via SSH deploy key
+        uses: actions/checkout@v4
+        with:
+          repository: ExaDev/scoop-claude-use
+          ssh-key: ${{ secrets.SCOOP_BUCKET_DEPLOY_KEY }}
+
+      - name: Download and validate checksum
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          TAG_URL="https://github.com/ExaDev/claude-use/releases/download/${TAG}"
+          curl -sL --fail --retry 6 --retry-delay 5 --retry-all-errors \
+            "${TAG_URL}/claude-use-windows-x64.zip.sha256" | awk '{print $1}' > sha-windows-x64
+          if ! [[ "$(cat sha-windows-x64)" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::checksum for windows-x64 not a 64-char hex digest: $(cat sha-windows-x64)"
+            exit 1
+          fi
+
+      - name: Generate manifest
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          WINDOWS_SHA=$(cat sha-windows-x64)
+          mkdir -p bucket
+          cat > bucket/claude-use.json <<EOF
+          {
+              "version": "${VERSION}",
+              "description": "Profile manager and launcher for Claude Code with per-directory sharing rules",
+              "homepage": "https://github.com/ExaDev/claude-use",
+              "license": "Apache-2.0",
+              "architecture": {
+                  "64bit": {
+                      "url": "https://github.com/ExaDev/claude-use/releases/download/${TAG}/claude-use-windows-x64.zip",
+                      "hash": "${WINDOWS_SHA}"
+                  }
+              },
+              "bin": [
+                  ["claude-use.exe", "claude-use"],
+                  ["claude-use.exe", "claude"]
+              ],
+              "checkver": {
+                  "github": "https://github.com/ExaDev/claude-use"
+              },
+              "autoupdate": {
+                  "architecture": {
+                      "64bit": {
+                          "url": "https://github.com/ExaDev/claude-use/releases/download/v\$version/claude-use-windows-x64.zip"
+                      }
+                  }
+              }
+          }
+          EOF
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bucket/claude-use.json
+          git diff --cached --quiet || git commit -m "chore: update manifest to ${{ github.ref_name }}"
+          git push
+
+  verify-tap-macos:
+    name: Verify Homebrew install (macOS)
+    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
+    needs: [release, update-tap]
+    runs-on: macos-latest
+    steps:
+      - name: Tap and install
+        run: |
+          brew tap ExaDev/claude-use
+          brew install ExaDev/claude-use/claude-use
+      - name: Check installed version matches the tag
+        run: |
+          claude-use --version
+          INSTALLED=$(claude-use --version)
+          EXPECTED="${GITHUB_REF_NAME#v}"
+          if [ "$INSTALLED" != "$EXPECTED" ]; then
+            echo "version mismatch: installed=$INSTALLED expected=$EXPECTED"
+            exit 1
+          fi
+
+  verify-tap-linux:
+    name: Verify Homebrew install (Linux)
+    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
+    needs: [release, update-tap]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Homebrew on Linux
+        run: |
+          if ! command -v brew >/dev/null 2>&1 && ! [ -x /home/linuxbrew/.linuxbrew/bin/brew ]; then
+            /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" </dev/null
+          fi
+          echo "/home/linuxbrew/.linuxbrew/bin" >> "$GITHUB_PATH"
+      - name: Tap and install
+        run: |
+          # brew tap's verbose output can SIGPIPE (exit 141) on Linux when it overflows the runner's stdout pipe; the tap itself still succeeds, so check the directory rather than the exit code.
+          brew tap ExaDev/claude-use >/dev/null || true
+          test -d /home/linuxbrew/.linuxbrew/Homebrew/Library/Taps/exadev/homebrew-claude-use
+          brew install ExaDev/claude-use/claude-use
+      - name: Check installed version matches the tag
+        run: |
+          claude-use --version
+          INSTALLED=$(claude-use --version)
+          EXPECTED="${GITHUB_REF_NAME#v}"
+          if [ "$INSTALLED" != "$EXPECTED" ]; then
+            echo "version mismatch: installed=$INSTALLED expected=$EXPECTED"
+            exit 1
+          fi
+
+  verify-scoop:
+    name: Verify Scoop install (Windows)
+    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
+    needs: [release, update-scoop]
+    runs-on: windows-latest
+    steps:
+      - name: Install Scoop
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "$env:USERPROFILE\scoop\shims\scoop.ps1")) {
+            Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+            Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+          }
+          Add-Content $env:GITHUB_PATH "$env:USERPROFILE\scoop\shims"
+      - name: Add bucket and install
+        shell: pwsh
+        run: |
+          if (-not (scoop bucket list | Select-String -Quiet '^claude-use')) {
+            scoop bucket add claude-use https://github.com/ExaDev/scoop-claude-use
+          }
+          scoop install claude-use
+      - name: Check installed version matches the tag
+        shell: pwsh
+        run: |
+          $installed = claude-use --version
+          Write-Host $installed
+          $expected = $env:GITHUB_REF_NAME -replace '^v', ''
+          if ($installed -ne $expected) {
+            Write-Host "version mismatch: installed=$installed expected=$expected"
+            exit 1
+          }
