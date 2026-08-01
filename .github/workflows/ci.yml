@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref so a fresh push doesn't queue behind a stale one.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm/action-setup reads the version from package.json's `packageManager` field.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26.5.0"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+      - run: pnpm test
+
+      # Regenerates schema/*.schema.json from src/config/schema.ts and fails if the committed files don't match byte-for-byte — the committed schemas are published artifacts, so they must never silently drift from the Zod schemas that define them.
+      - run: pnpm schema
+      - run: git diff --exit-code schema/
