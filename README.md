@@ -30,7 +30,7 @@ npx claude-use identity list
 npm install -g claude-use
 ```
 
-The npm package deliberately ships only the `claude-use` bin — not `claude` — specifically so there's no bin-name ambiguity for `npx` to ever get wrong (a real, observed bug in at least one current npm version: a package exposing two bin names, one matching the package name, could still resolve to the wrong one on a bare `npx <package>@version` invocation). If you want the `claude` launcher itself, use the GitHub Release binary, Homebrew, or Scoop below — all three ship both commands.
+The npm package deliberately ships only the `claude-use` bin — not `claude` — specifically so there's no bin-name ambiguity for `npx` to ever get wrong (a real, observed bug in at least one current npm version: a package exposing two bin names, one matching the package name, could still resolve to the wrong one on a bare `npx <package>@version` invocation). If you want the `claude` launcher itself, use the GitHub Release binary, Homebrew, or Scoop below — all three ship both commands. An npm-only install isn't limited to config management, though: `claude-use run [args...]` reaches the exact same launcher pipeline as the `claude` binary (identity resolve, farm resync, spawn), so `claude-use run @personal` works even where no `claude`-named binary exists at all.
 
 **Alternative: Homebrew (macOS and Linux).**
 
@@ -54,6 +54,8 @@ claude-use identity add personal      # create your first identity (a fresh logi
 claude @personal                      # log in and start using it
 ```
 
+No `claude` binary on `PATH`? `claude-use run @personal` does the same thing.
+
 That's it — with no further configuration, everything in `~/.claude` that isn't credentials or daemon runtime is classified into categories (see below) and shared according to sensible defaults. Add a second identity, add configuration profiles, and add directory rules only once you actually need more control than that.
 
 ## Concepts
@@ -66,6 +68,7 @@ Select an identity with:
 
 - `claude @<name>` — for this one invocation
 - `CLAUDE_ACCOUNT=<name> claude` — equivalent, via environment variable (this is `claude-use`'s own variable, read by its launcher; Anthropic's own multi-account convention is a plain `CLAUDE_CONFIG_DIR=<path> claude`, which `claude-use` builds on top of rather than replaces)
+- `claude-use run @<name>` — equivalent, without needing a `claude`-named binary on `PATH` at all: reaches the identical launcher pipeline through the already-installed `claude-use` command
 - `claude-use identity use <name>` — persistently, until changed again
 
 A directory rule (see below) can also pin a specific identity to a path, overriding whichever one is otherwise active — useful as a safety net so a particular client's directory always uses the right login regardless of habit.
@@ -98,7 +101,7 @@ A configuration profile is a named, reusable JSON file at `~/.claude-use/config-
 Profiles compose hierarchically via `extends`:
 
 ```json
-{"extends":["base","work"],"categories":{"history":false}}
+{ "extends": ["base", "work"], "categories": { "history": false } }
 ```
 
 Resolving a profile means resolving its `extends` chain first, base to specific, then applying the profile's own overrides last — so a profile only has to state what's different from what it extends, and a whole tree of profiles (`base` → `work` → `client-strict` → one profile per client) shares as much as possible.
@@ -134,7 +137,7 @@ One more boundary worth naming: an IDE extension's own UI-level preferences (VS 
 Any configuration layer — a profile, a directory rule, a committed `.claude-use.json` — can override sharing for one specific path, not just a whole category, and path keys may use glob wildcards:
 
 ```json
-{"categories":{"knowledge":false},"entries":{"knowledge/skills/commit":true}}
+{ "categories": { "knowledge": false }, "entries": { "knowledge/skills/commit": true } }
 ```
 
 shares exactly one skill even though the rest of `knowledge` is closed. The most specific matching path always wins.
@@ -146,11 +149,11 @@ All path and glob matching in this design (`entries` keys, directory-rule `path`
 Both an entries value and a whole rule can be made conditional instead of a flat boolean:
 
 ```json
-{"entries":{"history/projects/*":{"value":true,"when":{"newerThan":"90d"}}}}
+{ "entries": { "history/projects/*": { "value": true, "when": { "newerThan": "90d" } } } }
 ```
 
 ```json
-{"path":"~/work/clients/acme","categories":{"history":false},"when":{"branch":"client/*"}}
+{ "path": "~/work/clients/acme", "categories": { "history": false }, "when": { "branch": "client/*" } }
 ```
 
 | Condition | Meaning |
@@ -193,7 +196,7 @@ Modelled on how Claude Code itself resolves nested `CLAUDE.md` files: walking up
   "rules": [
     { "path": "~/work",                "configProfile": "work-default" },
     { "path": "~/work/clients",         "configProfile": "client-strict", "identity": "work" },
-{"path":"~/work/clients/example","entries":{"knowledge/skills/example-notes":true}}
+    { "path": "~/work/clients/example", "entries": { "knowledge/skills/example-notes": true } }
   ]
 }
 ```
@@ -215,7 +218,7 @@ The walk stops at (and includes) the user's home directory by default, configura
 A `.claude-use.json` is self-contained by default:
 
 ```json
-{"categories":{"history":false},"entries":{"knowledge/skills/commit":true}}
+{ "categories": { "history": false }, "entries": { "knowledge/skills/commit": true } }
 ```
 
 It may also reference a named `configProfile`, resolved first against any profile shipped in a sibling `.claude-use/config-profiles/` directory in the same repo, falling back to the user's own local `~/.claude-use/config-profiles/` — so a team can keep everything inline and portable, or ship a small reusable profile library alongside the pointer file.
@@ -237,7 +240,7 @@ The encoding is also **many-to-one, not merely hard to decode**: `~/work/clients
 This forward transform only applies to entries keys under the fixed `history/projects/` prefix — nowhere else. Everywhere else in this design (directory-rule `path` fields, every other `entries` key), a path is always a literal filesystem path or a normal glob over one, matched exactly as written; **a directory-rule `path` is never matched against `~/.claude/projects/` and never gets this transform** — directory rules only ever match ancestors of `$PWD` (see [Directory rules](#directory-rules)). The one place the transform applies is deliberately narrow: anything written after the literal `history/projects/` prefix in an `entries` key is a real absolute path (optionally globbed), not a literal child directory name, since `history/projects/`'s only real children are Claude Code's own encoded directory names — there's nothing else meaningful to reference there. For example:
 
 ```json
-{"entries":{"history/projects/~/work/clients/*":true}}
+{ "entries": { "history/projects/~/work/clients/*": true } }
 ```
 
 shares exactly the project-history subdirectories for every real path under `~/work/clients/`, without hand-listing each project's exact encoded name — `claude-use` encodes the `~/work/clients/*` portion the same way Claude Code names its own directories, then matches it against the literal directory names present under `~/.claude/projects/`. This is narrower and correct where the earlier, broader-sounding `categories: { history: true }` on a whole directory would not be: that opens the entire `history` category (sessions, tasks, transcripts, and everything else in the [category table](#category-based-sharing)), not just `projects`.
@@ -268,7 +271,7 @@ claude-use identity set <name> --allow-ambient-credential   # persistently, for 
 
 | What you're setting | Global (persistent) | Temporary (this run only) | Directory-scoped (persistent) |
 |---|---|---|---|
-| **Identity** | `claude-use identity use <name>` (writes `~/.claude-use/active-identity`) | `claude @<name>` / `CLAUDE_ACCOUNT=<name> claude` | `claude-use rules add <path> --identity <name>`; or `.claude-use.json`'s `"identity"` |
+| **Identity** | `claude-use identity use <name>` (writes `~/.claude-use/active-identity`) | `claude @<name>` / `CLAUDE_ACCOUNT=<name> claude` / `claude-use run @<name>` | `claude-use rules add <path> --identity <name>`; or `.claude-use.json`'s `"identity"` |
 | **Configuration profile** | `claude-use profile set-default <name>`; or `claude-use identity set-default-profile <identity> <profile>` | `claude --config-profile <name>` / `CLAUDE_USE_CONFIG_PROFILE=<name> claude` | `claude-use rules add <path> --profile <name>`; or `.claude-use.json`'s `"configProfile"` |
 | **A category** | `claude-use profile set <name> --category history=true`; or `claude-use configure <identity>` | `claude --category history=true[,knowledge=false,...]` / `CLAUDE_USE_CATEGORY_OVERRIDE="history=true,knowledge=false"` | `claude-use configure <identity>` run from inside the ruled directory; or `.claude-use.json`'s `"categories"` |
 | **An individual entry** | `claude-use profile set <name> --entry "path"=true`; or `claude-use configure <identity> <path>` | `claude --share <path>[,<path>,...]` / `claude --hide <path>[,<path>,...]` / `CLAUDE_USE_ENTRY_OVERRIDE="path=true,otherpath=false"` | `claude-use configure <identity> <path>` run from inside the ruled directory; or `.claude-use.json`'s `"entries"` |
@@ -299,6 +302,8 @@ claude-use rules remove <path>
 
 claude-use configure <identity> [path]
 claude-use check [path] [--identity <name>]
+claude-use doctor
+claude-use run [args...]
 ```
 
 ### `claude-use configure`: which file it writes to
@@ -326,6 +331,10 @@ It also runs three checks that don't depend on `path` at all, every time, so a r
 - **Credential storage, on macOS** — prints the Keychain service name Claude Code is actually using for the active identity (`security find-generic-password` under the hood), so you can visually confirm two identities really do resolve to two distinct entries rather than trusting the empirical pattern described in [Identities](#identities) blindly.
 - **`settings` exposure** — if the `settings` category resolves shared for this identity, and the underlying `settings.json`/`settings.local.json` has a non-empty `env` or `hooks` field, prints how many keys/commands would be shared (names only, never values) so you can review them against [the secrets caveat](#category-based-sharing) yourself, rather than the tool guessing at what looks like a secret.
 
+### Debugging: `claude-use doctor`
+
+Where `claude-use check` resolves one directory+identity's cascade in detail, `claude-use doctor` audits the whole `~/.claude-use` config graph at once — identity/directory-agnostic, no arguments needed. It validates every identity's `identity.json`, every configuration profile's own `extends` chain (catching a missing profile name or a circular `extends` before a launch would), `directory-rules.json`, `config.json`, `categories.local.json`, and `active-identity`, each against its own Zod schema and cross-referenced against each other (an identity's `defaultConfigProfile`, a directory rule's `identity`/`configProfile`, actually pointing at something real) — plus whether a real Claude Code binary is discoverable at all and the same ambient-credential check `check` runs. One malformed file is reported as its own failure rather than aborting the rest of the audit, and the command exits non-zero if anything failed — useful as a scriptable "is everything still consistent" gate, not just an interactive debugging aid.
+
 ## Examples
 
 ### The core example: one login, two isolated clients, a few shared skills
@@ -344,12 +353,12 @@ It also runs three checks that don't depend on `path` at all, every time, so a r
 
 ```json
 // ~/.claude-use/config-profiles/client-acme.json
-{"extends":["client-base"]}
+{ "extends": ["client-base"] }
 ```
 
 ```json
 // ~/.claude-use/config-profiles/client-widget.json
-{"extends":["client-base"]}
+{ "extends": ["client-base"] }
 ```
 
 ```json
@@ -357,7 +366,7 @@ It also runs three checks that don't depend on `path` at all, every time, so a r
 {
   "rules": [
     { "path": "~/work/clients/acme",   "configProfile": "client-acme" },
-{"path":"~/work/clients/widget","configProfile":"client-widget"}
+    { "path": "~/work/clients/widget", "configProfile": "client-widget" }
   ]
 }
 ```
@@ -369,7 +378,7 @@ One login serves both clients. History is fully isolated between them; `commit`,
 **Two logins, a directory rule as a safety net independent of which one is active.** A `personal` identity defaults to sharing history everywhere; a `work` identity defaults to not sharing it. One client is under a strict no-cross-contamination requirement:
 
 ```json
-{"rules":[{"path":"~/work/clients/regulated-client","configProfile":"client-strict"}]}
+{ "rules": [{ "path": "~/work/clients/regulated-client", "configProfile": "client-strict" }] }
 ```
 
 If `claude @personal` is ever run from inside that same directory — intentionally or by habit — the rule still applies, because rules aren't tied to identity. History stays off no matter which login is active.
@@ -377,7 +386,7 @@ If `claude @personal` is ever run from inside that same directory — intentiona
 **A team repo ships its own config; a new teammate needs zero setup.** A project commits `.claude-use.json` at its root:
 
 ```json
-{"categories":{"history":false},"entries":{"knowledge/skills/commit":true,"knowledge/skills/pr-feedback":true}}
+{ "categories": { "history": false }, "entries": { "knowledge/skills/commit": true, "knowledge/skills/pr-feedback": true } }
 ```
 
 A new teammate installs `claude-use`, creates their own identity, clones the repo, and runs `claude` from inside it — they get the isolation-plus-shared-skills behaviour immediately, with no local configuration. If they want to see their own past sessions there too, that's a personal, local addition that composes on top of the committed file.
@@ -388,7 +397,7 @@ A new teammate installs `claude-use`, creates their own identity, clones the rep
 {
   "rules": [
     { "path": "~/oss",                     "categories": { "history": true } },
-{"path":"~/oss/private-experiments","categories":{"history":false}}
+    { "path": "~/oss/private-experiments", "categories": { "history": false } }
   ]
 }
 ```
@@ -439,6 +448,7 @@ src/
   directoryRules.ts       # `claude-use rules` subcommands
   configure.ts            # `claude-use configure` interactive picker (@clack/prompts)
   check.ts                # `claude-use check` dry-run inspector — cascade resolution, ambient-credential/Keychain/settings-secrets diagnostics — no farm writes, no spawn
+  doctor.ts                # `claude-use doctor` whole-tree audit — every identity/profile/extends-chain/directory-rules/config.json/categories.local.json/active-identity, aggregating rather than throwing on a broken file
   cli/
     parsers.ts            # shared CLI-flag parsing helpers (splitTopLevelCommas, parsePair, repeatable-flag collectors)
   resolve.ts              # public facade re-exporting the resolver below — nothing outside src/resolve/ imports its internals directly
@@ -538,6 +548,8 @@ The published JSON Schemas under `schema/` should self-reference (and, if ever s
 
 `check.ts`'s three always-on diagnostics get their own tests too, independent of path/cascade resolution: the ambient-credential check against a fake `process.env` (same fixture as `launcher.ts`'s guard, since they share the same detection logic); the settings-secrets advisory against a fake settings.json with populated `env`/`hooks` fields, confirming it reports counts and key names only, never values; and — since Keychain access is real OS state, not something to fake — a manual/integration-only note that the Keychain-name lookup is exercised against a real `security` call in CI on macOS runners, not unit-tested with a mock.
 
+`doctor.ts` deliberately breaks the "throw a validation error and let it propagate" convention every other command file follows, since aggregating every check into one report — rather than aborting on the first broken file — is the whole point of the command. Its own tests cover this directly: every input (identities, configuration profiles, `directory-rules.json`, `config.json`, `categories.local.json`, `active-identity`) fed simultaneously malformed at once, asserting `runDoctor` still returns a full report with one `fail` finding per broken input rather than throwing, plus a genuine `extends` cycle correctly failing and a genuine diamond correctly not being mistaken for one. Its wiring layer sets `process.exitCode` rather than throwing or calling `process.exit()` when the report contains any failure — this is new to the codebase and not unit-tested, matching `registerCheckCommand`'s own I/O wiring being untested for the same reason.
+
 ## Development
 
 ```bash
@@ -556,11 +568,11 @@ Commits are gated by Husky hooks (`pnpm install` wires them up via the `prepare`
 A fresh clone needs one extra step before committing anything. The repository routes text files through a secret-redaction clean filter (`.gitattributes`), and git stores filter definitions in `.git/config` rather than in the repository, so cloning does not bring them along:
 
 ```sh
-git config filter.secrets.clean 'python3 .githooks/git-filter-clean'
+git config filter.secrets.clean 'python3 .githooks/git-filter-clean %f'
 git config filter.secrets.smudge cat
 ```
 
-Without this, `.gitattributes`' `filter=secrets` attribute resolves to nothing and content reaches the object store unredacted. Do not add a `diff.secrets.textconv` pointing at the same script: `git-filter-clean` is a stream filter (reads stdin, writes stdout), while a textconv driver is handed a path instead, so the script would sit waiting on a stdin nobody writes to — blocking forever under lint-staged on any commit touching a partially staged file.
+Without this, `.gitattributes`' `filter=secrets` attribute resolves to nothing and content reaches the object store unredacted. The `%f` matters, not just the script path: it's what lets the filter tell a genuine `.jsonl` file (where its own per-line JSON redaction pass is correct) apart from every other file this repo routes through the same filter — without it, that pass would also fire on ordinary `.json`/`.md` files, compact-reformatting any line that happens to be valid JSON on its own (a pretty-printed file's last array element, a one-line JSON example in a code block) and silently discarding its indentation. Do not add a `diff.secrets.textconv` pointing at the same script: `git-filter-clean` is a stream filter (reads stdin, writes stdout), while a textconv driver is handed a path instead, so the script would sit waiting on a stdin nobody writes to — blocking forever under lint-staged on any commit touching a partially staged file.
 
 ## Contributing
 
