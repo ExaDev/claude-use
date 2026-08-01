@@ -59,6 +59,23 @@ describe("claudeShim", () => {
       expect(fs.statSync(result.targetPath).mode & 0o111).not.toBe(0);
     });
 
+    it("places the shim next to a PATH-visible symlink, not next to its realpath target (Homebrew's Cellar layout)", () => {
+      // Mirrors Homebrew's real layout: /opt/homebrew/bin/claude-use -> ../Cellar/claude-use/<version>/bin/claude-use.
+      const cellarDir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-shim-cellar-test-"));
+      const cellarFile = path.join(cellarDir, "claude-use");
+      fs.writeFileSync(cellarFile, "fake-binary-v1", { mode: 0o755 });
+      const symlinkPath = path.join(binDir, "claude-use-symlinked");
+      fs.symlinkSync(cellarFile, symlinkPath);
+
+      try {
+        const result = enableClaudeShim({ paths, ownExecutablePath: symlinkPath, platform: "linux", force: false });
+        expect(result.targetPath).toBe(path.join(binDir, "claude"));
+        expect(fs.readFileSync(result.targetPath, "utf8")).toBe("fake-binary-v1");
+      } finally {
+        fs.rmSync(cellarDir, { recursive: true, force: true });
+      }
+    });
+
     it("is idempotent when re-run against the exact same source", () => {
       enableClaudeShim({ paths, ownExecutablePath: sourcePath, platform: "linux", force: false });
       const second = enableClaudeShim({ paths, ownExecutablePath: sourcePath, platform: "linux", force: false });

@@ -125,7 +125,8 @@ export function enableClaudeShim(params: EnableShimParams, linkFs: LinkFs = node
     throw new UnsupportedShimSourceError(realOwnPath);
   }
 
-  const targetPath = resolveClaudeTargetPath(realOwnPath, params.dir);
+  // Deliberately targets alongside the executable *as invoked* (params.ownExecutablePath), not its realpath: a package manager's own PATH-visible entry is very often a symlink into some other directory entirely (e.g. Homebrew's `/opt/homebrew/bin/claude-use` -> `../Cellar/claude-use/<version>/bin/claude-use`), and the new `claude` shim needs to land next to that PATH-visible symlink, not buried in the Cellar keg alongside the dereferenced target where nothing on PATH would ever find it. The link *source* below still uses the resolved realOwnPath, so the hardlink/copy is always of the real file, never a symlink-of-a-symlink.
+  const targetPath = resolveClaudeTargetPath(params.ownExecutablePath, params.dir);
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
 
   const existing = lstatOrUndefined(targetPath);
@@ -174,12 +175,13 @@ export interface DisableShimParams {
 
 /** The inverse of `enableClaudeShim`: removes the `claude` command it created, using the same "is this ours" safety check. A no-op, not an error, when nothing is enabled — including clearing a dangling marker whose target has since been deleted by other means. */
 export function disableClaudeShim(params: DisableShimParams): DisableShimResult {
+  // See enableClaudeShim's own comment: targetPath is derived from the executable as invoked, never its realpath, since a package manager's PATH-visible entry is often a symlink elsewhere (Homebrew's Cellar). realOwnPath is only used below to compare inodes for the "is this ours" safety check.
   const realOwnPath = fs.realpathSync(params.ownExecutablePath);
   const state = readJson(params.paths.claudeShimFile, ClaudeShimStateSchema);
   const targetPath =
     params.dir !== undefined
-      ? path.join(params.dir, claudeTargetFilename(realOwnPath))
-      : (state?.targetPath ?? resolveClaudeTargetPath(realOwnPath));
+      ? path.join(params.dir, claudeTargetFilename(params.ownExecutablePath))
+      : (state?.targetPath ?? resolveClaudeTargetPath(params.ownExecutablePath));
 
   const existing = lstatOrUndefined(targetPath);
   if (existing === undefined) {
