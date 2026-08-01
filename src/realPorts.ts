@@ -221,6 +221,46 @@ export function findExecutableInDir(dir: string, name: string): string | undefin
   }
 }
 
+/**
+ * Resolves the absolute path to the currently-running claude-use/claude executable from the raw process/env facts a call site would otherwise read directly off `process` — passed explicitly so this is unit-testable without touching real process globals.
+ *
+ * This exists because `process.argv[1]` is not a reliable "path to my own executable" for a Node single-executable-application (SEA) binary the way it is for an ordinary Node script. Per Node's own SEA documentation, a SEA binary's `argv[1]` merely echoes back whatever string appeared on the command line — verbatim, with no path or PATH resolution applied by Node or the OS — whereas a shebang-invoked script (the npm/plain-Node case) genuinely receives its resolved script path there, because the kernel's shebang handling substitutes the shell's already-PATH-resolved pathname before Node ever starts. Concretely: typing the bare word `claude-use` at a shell prompt produces `argv[1] === "claude-use"` for a SEA binary (no directory component at all), which previously got fed straight into `fs.realpathSync`/`path.dirname` as if it were a real path — resolving relative to `process.cwd()` instead of wherever PATH actually found the binary, and throwing ENOENT the moment cwd didn't happen to contain a same-named file. Confirmed via a minimal instrumented SEA binary reproducing exactly this, and matching the exact failure every release verification job hit once invoking `claude-use`/`claude` as a bare PATH-resolved command rather than by absolute path.
+ *
+ * The fix: if the raw candidate contains a path separator, it's already a real (relative-to-cwd or absolute) path — resolve it against cwd and use it directly, preserving whatever symlink it names (never realpath'd here, since a package manager's PATH-visible entry is often a symlink elsewhere — e.g. Homebrew's `/opt/homebrew/bin/claude-use` -> its own Cellar keg — and callers need that PATH-visible location, not the dereferenced target). If it's a bare word with no separator, it can only have been found via PATH lookup, so search PATH ourselves for the first directory containing an executable of that name, reconstructing exactly what the shell already did.
+ */
+export function resolveOwnExecutablePath(env: {
+  readonly argv1: string | undefined;
+  readonly execPath: string;
+  readonly cwd: string;
+  readonly pathDirs: readonly string[];
+  readonly findExecutableInDir: (dir: string, name: string) => string | undefined;
+}): string {
+  if (env.argv1 === undefined) {
+    return env.execPath;
+  }
+  if (env.argv1.includes("/") || env.argv1.includes("\\")) {
+    return path.resolve(env.cwd, env.argv1);
+  }
+  for (const dir of env.pathDirs) {
+    const found = env.findExecutableInDir(dir, env.argv1);
+    if (found !== undefined) {
+      return found;
+    }
+  }
+  return env.execPath;
+}
+
+/** Real-wired convenience over `resolveOwnExecutablePath`, reading the actual process globals — this is what every real call site (`cli.ts`, `doctor.ts`, `claudeShim.ts`'s command wiring) should use instead of reading `process.argv[1]`/`process.execPath` directly. */
+export function realOwnExecutablePath(): string {
+  return resolveOwnExecutablePath({
+    argv1: process.argv[1],
+    execPath: process.execPath,
+    cwd: process.cwd(),
+    pathDirs: (process.env.PATH ?? "").split(path.delimiter).filter((dir) => dir !== ""),
+    findExecutableInDir,
+  });
+}
+
 /** Builds the real `resolveClaudeBinary` callback `runLauncher` needs: scans the real versions directory, then falls back to a real PATH search, excluding this tool's own install directory. */
 export function realResolveClaudeBinary(ownInstallDirs: readonly string[]): () => DiscoveredClaudeBinary {
   return () =>

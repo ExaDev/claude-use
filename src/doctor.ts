@@ -17,7 +17,7 @@ import {
 import { detectAmbientCredential, formatAmbientCredentialGuardMessage } from "./launcher/guard";
 import type { RunPort } from "./launcher/ports";
 import type { LayoutPaths } from "./paths";
-import { realFsPort, realResolveClaudeBinary, realRunPort } from "./realPorts";
+import { realFsPort, realOwnExecutablePath, realResolveClaudeBinary, realRunPort } from "./realPorts";
 import { lineariseProfile, type ProfileLoader, type ProfileSource } from "./resolve";
 import type { DiscoveredClaudeBinary } from "./versionDiscovery";
 
@@ -380,7 +380,7 @@ export function registerDoctorCommand(program: Command, paths: LayoutPaths): voi
         return { name, path: profilePath, raw: realFsPort.readFileUtf8(profilePath) };
       });
 
-      const ownExecutablePath = process.argv[1] ?? process.execPath;
+      const ownExecutablePath = realOwnExecutablePath();
 
       let binaryDiscovery: DoctorBinaryDiscovery;
       try {

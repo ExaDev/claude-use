@@ -4,7 +4,7 @@ import type { Command } from "commander";
 import { z } from "zod";
 
 import { readJson, writeJsonAtomic } from "./config/store";
-import { findExecutableInDir } from "./realPorts";
+import { findExecutableInDir, realOwnExecutablePath } from "./realPorts";
 import type { LayoutPaths } from "./paths";
 
 /** The claude-shim.json marker's own shape: never hand-edited, so it lives here rather than in `src/config/schema.ts`'s user-editable schemas (and is correctly excluded from `scripts/gen-schema.mts`'s published-schema generation, which only ever imports from that file). */
@@ -98,7 +98,7 @@ export const nodeLinkFs: LinkFs = { link: fs.linkSync, copyFile: fs.copyFileSync
 /** Inputs to `enableClaudeShim`. */
 export interface EnableShimParams {
   readonly paths: LayoutPaths;
-  /** process.argv[1] ?? process.execPath, supplied by the wiring layer. */
+  /** `realOwnExecutablePath()` (see realPorts.ts), supplied by the wiring layer. */
   readonly ownExecutablePath: string;
   /** process.platform, supplied by the wiring layer — only used for the Windows/npm-source guard. */
   readonly platform: string;
@@ -247,7 +247,7 @@ export function registerShimCommand(program: Command, paths: LayoutPaths): void 
     .option("--dir <path>", "Enable into this directory instead of alongside the running claude-use executable.")
     .option("--force", "Overwrite the target even if it doesn't look like claude-use's own doing.")
     .action((options: { dir?: string; force?: boolean }) => {
-      const ownExecutablePath = process.argv[1] ?? process.execPath;
+      const ownExecutablePath = realOwnExecutablePath();
       const result = enableClaudeShim({
         paths,
         ownExecutablePath,
@@ -279,7 +279,7 @@ export function registerShimCommand(program: Command, paths: LayoutPaths): void 
     .option("--dir <path>", "Look in this directory instead of trusting the recorded location.")
     .option("--force", "Remove the target even if it doesn't look like claude-use's own doing.")
     .action((options: { dir?: string; force?: boolean }) => {
-      const ownExecutablePath = process.argv[1] ?? process.execPath;
+      const ownExecutablePath = realOwnExecutablePath();
       const result = disableClaudeShim({
         paths,
         ownExecutablePath,
