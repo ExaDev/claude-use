@@ -15,7 +15,7 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # pnpm/action-setup reads the version from package.json's `packageManager` field.
       - uses: pnpm/action-setup@v4
@@ -45,7 +45,7 @@ jobs:
     # Self-hosted runners queue indefinitely rather than failing cleanly if the machine is offline/asleep -- exactly the silent-hang failure mode macos-13's removal caused before. A timeout turns that into a clear, actionable failure instead.
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v4
 
@@ -76,7 +76,7 @@ jobs:
     continue-on-error: true
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v4
 
@@ -108,7 +108,7 @@ jobs:
     needs: [check]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v4
 
@@ -136,7 +136,7 @@ jobs:
     needs: [check]
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v4
 
@@ -165,7 +165,7 @@ jobs:
     needs: [check]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v4
 
@@ -203,7 +203,7 @@ jobs:
       contents: read # declaring `permissions:` at all replaces every default, including the read access actions/checkout needs -- this isn't optional just because id-token is the "new" one being added
       id-token: write # OIDC identity for npm trusted publishing (no NPM_TOKEN)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v4
 
@@ -242,7 +242,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: pnpm/action-setup@v4
 
@@ -322,7 +322,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout tap via SSH deploy key
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ExaDev/homebrew-claude-use
           ssh-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
@@ -417,7 +417,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout bucket via SSH deploy key
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ExaDev/scoop-claude-use
           ssh-key: ${{ secrets.SCOOP_BUCKET_DEPLOY_KEY }}
