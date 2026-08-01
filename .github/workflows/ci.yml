@@ -520,6 +520,8 @@ jobs:
             exit 1
           fi
           claude-use shim disable
+          # bash caches a resolved command's path in its hash table the first time it's invoked in this shell session (here, by the `claude --version` call above) -- command -v/type check that cache before the filesystem, so without clearing it a just-deleted file can still be reported as found.
+          hash -r
           if command -v claude >/dev/null 2>&1; then
             echo "error: 'claude' should be gone after shim disable -- found $(command -v claude)"
             exit 1
@@ -572,6 +574,8 @@ jobs:
             exit 1
           fi
           claude-use shim disable
+          # bash caches a resolved command's path in its hash table the first time it's invoked in this shell session (here, by the `claude --version` call above) -- command -v/type check that cache before the filesystem, so without clearing it a just-deleted file can still be reported as found.
+          hash -r
           if command -v claude >/dev/null 2>&1; then
             echo "error: 'claude' should be gone after shim disable -- found $(command -v claude)"
             exit 1
@@ -695,6 +699,8 @@ jobs:
             exit 1
           fi
           claude-use shim disable
+          # bash caches a resolved command's path in its hash table the first time it's invoked in this shell session (here, by the `claude --version` call above) -- command -v/type check that cache before the filesystem, so without clearing it a just-deleted file can still be reported as found.
+          hash -r
           if command -v claude >/dev/null 2>&1; then
             echo "error: 'claude' should be gone after shim disable -- found $(command -v claude)"
             exit 1
@@ -757,6 +763,8 @@ jobs:
             exit 1
           fi
           claude-use shim disable
+          # bash caches a resolved command's path in its hash table the first time it's invoked in this shell session (here, by the `claude --version` call above) -- command -v/type check that cache before the filesystem, so without clearing it a just-deleted file can still be reported as found.
+          hash -r
           if command -v claude >/dev/null 2>&1; then
             echo "error: 'claude' should be gone after shim disable -- found $(command -v claude)"
             exit 1
