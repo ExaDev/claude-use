@@ -21,7 +21,6 @@
     "node": ">=22.12.0"
   },
   "bin": {
-    "claude": "dist/cli.cjs",
     "claude-use": "dist/cli.cjs"
   },
   "files": [

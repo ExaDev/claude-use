@@ -23,14 +23,14 @@ This installs two binaries, `claude` and `claude-use`, into `~/.local/bin`. They
 
 Make sure `~/.local/bin` precedes any other `claude` installation (Homebrew, npm global, the native updater's own shim) on your `PATH`, since this `claude` needs to be the one that actually runs.
 
-**Alternative: npm.** The same entrypoint is also published as the `claude-use` npm package — useful if you already have Node ≥ 22.12 and would rather not download a platform-specific binary:
+**Alternative: npm.** The same `claude-use` command (config/identity management only — not the `claude` launcher, see below) is also published as an npm package — useful if you already have Node ≥ 22.12 and would rather not download a platform-specific binary:
 
 ```bash
 npx claude-use identity list
-npm install -g claude-use   # to get both `claude` and `claude-use` as ordinary commands on PATH
+npm install -g claude-use
 ```
 
-`npx claude-use` is supposed to run the `claude-use` command specifically, since npm's own documented resolution rule picks the bin whose name matches the package name when there's more than one. In practice, this has been observed to pick the wrong bin (`claude`, the launcher) on at least one current npm version (11.17.0), contradicting that documented rule — if `npx claude-use` ever seems to launch the wrong thing, use the unambiguous explicit form instead: `npx -p claude-use claude-use identity list`. `npx claude` will *not* reach this project's launcher either way — the plain `claude` package name on npm belongs to an unrelated, much older package — so use `npm install -g claude-use` (or `npx -p claude-use claude`) if you want the launcher itself without the GitHub Release binary.
+The npm package deliberately ships only the `claude-use` bin — not `claude` — specifically so there's no bin-name ambiguity for `npx` to ever get wrong (a real, observed bug in at least one current npm version: a package exposing two bin names, one matching the package name, could still resolve to the wrong one on a bare `npx <package>@version` invocation). If you want the `claude` launcher itself, use the GitHub Release binary, Homebrew, or Scoop below — all three ship both commands.
 
 **Alternative: Homebrew (macOS and Linux).**
 
@@ -45,7 +45,7 @@ scoop bucket add claude-use https://github.com/ExaDev/scoop-claude-use
 scoop install claude-use
 ```
 
-All four channels install the same two commands, `claude` and `claude-use`. The GitHub Release binary, Homebrew, and Scoop all ship the self-contained Node SEA build (no Node.js installation required); npm ships the plain bundle and runs under whatever Node ≥ 22.12 you already have. macOS arm64, both Linux architectures, and Windows x64 are all targets Node core itself tests and verifies `--build-sea` against upstream; macOS x64 is published best-effort, since Node core does not test or verify single-executable-application support on that target.
+The GitHub Release binary, Homebrew, and Scoop all install both `claude` and `claude-use` as ordinary commands, and all ship the self-contained Node SEA build (no Node.js installation required) — macOS arm64, both Linux architectures, and Windows x64 are all targets Node core itself tests and verifies `--build-sea` against upstream; macOS x64 is published best-effort, since Node core does not test or verify single-executable-application support on that target. npm installs only `claude-use` (see above) and ships the plain bundle, running under whatever Node ≥ 22.12 you already have.
 
 ## Quick start
 
