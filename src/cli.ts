@@ -34,14 +34,16 @@ import {
  *
  * `claude` runs the launcher (`src/launcher.ts`'s `runLauncher`), wired here with real ports (`src/realPorts.ts`) instead of the fakes every test in this project uses. It resolves the identity, loads and assembles the cascade for the current directory, resyncs that identity's symlink farm to match, and spawns the real `claude` binary with `CLAUDE_CONFIG_DIR` pointed at the farm.
  *
- * `claude-use` runs the Commander tree exposing `identity`/`profile`/`rules` subcommands, each a thin adapter over `src/config/store.ts` and the Zod schemas in `src/config/schema.ts`.
+ * `claude-use` runs the Commander tree exposing `identity`/`profile`/`rules`/`check`/`configure` subcommands, each a thin adapter over `src/config/store.ts` and the Zod schemas in `src/config/schema.ts` — plus `run`, which reaches the exact same launcher pipeline as the `claude` binary above, just fed a different argv source, so a `claude`-named file on `PATH` is never required.
  */
 function buildClaudeUseProgram(): Command {
   const program = new Command();
   program
     .name("claude-use")
     .description("Profile manager for Claude Code identities and configuration profiles.")
-    .version(packageJson.version);
+    .version(packageJson.version)
+    // Required so `-V`/`--version`/`-h`/`--help` are only recognised before the first subcommand token, not scanned for anywhere in argv -- otherwise `claude-use run @name --version` would be silently intercepted by claude-use's own version handling before ever reaching `run`'s forwarded args.
+    .enablePositionalOptions();
 
   const paths = resolveLayoutPaths();
   registerIdentityCommand(program, paths);
@@ -49,6 +51,19 @@ function buildClaudeUseProgram(): Command {
   registerRulesCommand(program, paths);
   registerCheckCommand(program, paths);
   registerConfigureCommand(program, paths);
+
+  program
+    .command("run")
+    .description(
+      "Run the launcher pipeline directly, without needing a `claude`-named binary on PATH. " +
+        "Every argument is forwarded exactly as `claude` would receive it.",
+    )
+    .allowUnknownOption()
+    .helpOption(false)
+    .argument("[args...]", "Arguments to forward, e.g. @<name>, --config-profile <name>, or any Claude Code flag.")
+    .action((args: string[]) => {
+      runClaude(args);
+    });
 
   return program;
 }
@@ -102,14 +117,15 @@ function buildFarmRuntime(paths: LayoutPaths): {
   };
 }
 
-function runClaude(): void {
+/** Runs the launcher pipeline. `argvOverride`, when given, replaces `realProcPort`'s own `process.argv.slice(2)` -- this is what lets `claude-use run [args...]` reach the identical pipeline the `claude` binary name uses, fed the args Commander collected instead of the real argv. */
+function runClaude(argvOverride?: readonly string[]): void {
   const paths = resolveLayoutPaths();
   const farm = buildFarmRuntime(paths);
   runLauncher({
     paths,
     fs: realFsPort,
     spawn: realSpawnPort,
-    proc: realProcPort,
+    proc: argvOverride === undefined ? realProcPort : { ...realProcPort, argv: argvOverride },
     log: realLogPort,
     resolveClaudeBinary: realResolveClaudeBinary([path.dirname(process.argv[1] ?? process.execPath)]),
     farm: farm.runtime,
