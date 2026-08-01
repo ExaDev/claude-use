@@ -67,6 +67,10 @@ function writeSeaConfig(): string {
   return seaConfigPath;
 }
 
+function hasStderr(error: unknown): error is Error & { stderr: unknown } {
+  return error instanceof Error && "stderr" in error;
+}
+
 function buildSea(seaConfigPath: string): string {
   const outputPath = path.join(distDir, outputBinaryName);
   if (fs.existsSync(outputPath)) {
@@ -78,13 +82,14 @@ function buildSea(seaConfigPath: string): string {
       stdio: ["ignore", "inherit", "pipe"],
     });
   } catch (error) {
-    const stderr = error instanceof Error && "stderr" in error ? String((error as { stderr: unknown }).stderr) : "";
+    const stderr = hasStderr(error) ? String(error.stderr) : "";
     if (stderr.includes("Single executable application is disabled")) {
       throw new Error(
         `${process.execPath} was built with the single-executable-application feature disabled ` +
           "(confirmed on Homebrew's macOS Node distribution). Re-run this build with a Node binary " +
           "from a distribution that supports it — the official nodejs.org build, or a version " +
           "manager installing upstream builds (mise, nvm, volta, fnm) — ahead of it on PATH.",
+        { cause: error },
       );
     }
     if (stderr.length > 0) {
