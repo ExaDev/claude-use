@@ -1,0 +1,39 @@
+# Mass-deletion guard: reject a push that would delete an implausibly large
+# number of files on the remote, which usually means a destructive commit
+# slipped past pre-commit (--no-verify) or landed on another branch that was
+# merged. Compares the local tip against the remote tip for each pushed ref.
+THRESHOLD=100
+zero="0000000000000000000000000000000000000000"
+
+while read -r local_ref local_hash remote_ref remote_hash; do
+  # Skip tag pushes
+  case "$remote_ref" in
+    refs/tags/*) continue ;;
+  esac
+
+  # Skip branch deletions (local hash is all zeros)
+  if [ "$local_hash" = "$zero" ]; then
+    continue
+  fi
+
+  # New branch — nothing to compare against
+  if [ "$remote_hash" = "$zero" ]; then
+    continue
+  fi
+
+  deleted=$(git diff --diff-filter=D --name-only "$remote_hash" "$local_hash" 2>/dev/null | wc -l | tr -d ' ')
+
+  if [ "$deleted" -gt "$THRESHOLD" ]; then
+    cat >&2 <<EOF
+ERROR: Push to $remote_ref would delete $deleted files from the remote
+(threshold: $THRESHOLD).
+Aborting — this likely indicates a destructive commit in the push history.
+
+If this is intentional, bypass with: git push --no-verify
+EOF
+    exit 1
+  fi
+done
+
+# Run full test suite before push to catch breakage early.
+pnpm test

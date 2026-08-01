@@ -14,6 +14,14 @@
     "outDir": "dist",
     "rootDir": "."
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts", "scripts/**/*.mts", "vitest.config.mts", "eslint.config.ts"],
+  "include": [
+    "src/**/*.ts",
+    "scripts/**/*.ts",
+    "scripts/**/*.mts",
+    "vitest.config.mts",
+    "eslint.config.ts",
+    "commitlint.config.ts",
+    "lint-staged.config.mts"
+  ],
   "exclude": ["node_modules", "dist"]
 }

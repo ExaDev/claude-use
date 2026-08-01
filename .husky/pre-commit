@@ -1,0 +1,35 @@
+# History-shape guards (fast) plus lint-staged (eslint --fix on staged files).
+# The full test suite runs on pre-push so commits stay fast and atomic.
+
+# Enforce linear history on main — reject merge commits.
+branch=$(git rev-parse --abbrev-ref HEAD)
+if [ "$branch" = "main" ] && git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+  echo "Error: merge commits are not allowed on main. Rebase instead."
+  exit 1
+fi
+
+# Ban squash merges — `git merge --squash` collapses granular history into one
+# commit. git leaves a SQUASH_MSG file in the git dir during a squash merge, so
+# its presence at commit time is the reliable signal. Rebase to preserve history.
+if [ -f "$(git rev-parse --git-dir)/SQUASH_MSG" ]; then
+  echo "Error: squash merges are not allowed — they discard commit history. Rebase instead."
+  exit 1
+fi
+
+# Mass-deletion guard: reject a staged change that deletes an implausibly large
+# number of files, which usually means a sparse-checkout or partial-worktree bug
+# rather than a deliberate change.
+THRESHOLD=100
+deleted=$(git diff --cached --diff-filter=D --name-only | wc -l | tr -d ' ')
+if [ "$deleted" -gt "$THRESHOLD" ]; then
+  cat >&2 <<EOF
+ERROR: Commit would delete $deleted files (threshold: $THRESHOLD).
+Aborting — this likely indicates a destructive staged change.
+
+If this is intentional, bypass with: git commit --no-verify
+EOF
+  exit 1
+fi
+
+# Lint and auto-fix staged TypeScript files.
+pnpm exec lint-staged
