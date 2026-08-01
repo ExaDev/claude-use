@@ -30,7 +30,7 @@ npx claude-use identity list
 npm install -g claude-use   # to get both `claude` and `claude-use` as ordinary commands on PATH
 ```
 
-`npx claude-use` runs the `claude-use` command specifically, because the package name matches one of its two bin names. `npx claude` will *not* reach this project's launcher — the plain `claude` package name on npm belongs to an unrelated, much older package — so use `npm install -g claude-use` (or `npx -p claude-use claude`) if you want the launcher itself without the GitHub Release binary.
+`npx claude-use` is supposed to run the `claude-use` command specifically, since npm's own documented resolution rule picks the bin whose name matches the package name when there's more than one. In practice, this has been observed to pick the wrong bin (`claude`, the launcher) on at least one current npm version (11.17.0), contradicting that documented rule — if `npx claude-use` ever seems to launch the wrong thing, use the unambiguous explicit form instead: `npx -p claude-use claude-use identity list`. `npx claude` will *not* reach this project's launcher either way — the plain `claude` package name on npm belongs to an unrelated, much older package — so use `npm install -g claude-use` (or `npx -p claude-use claude`) if you want the launcher itself without the GitHub Release binary.
 
 **Alternative: Homebrew (macOS and Linux).**
 

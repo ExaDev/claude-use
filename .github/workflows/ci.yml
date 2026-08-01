@@ -571,9 +571,11 @@ jobs:
         run: |
           expected="${GITHUB_REF_NAME#v}"
           # The registry can take a few moments to serve a version right after `npm publish` returns success, so retry rather than trusting the first attempt.
+          #
+          # Uses `-p ... claude-use` (the explicit command form) rather than the bare `npx claude-use@version` form: empirically, npm 11.17's bare-invocation heuristic for a multi-bin package picks the wrong bin (`claude`, not `claude-use`) even though npm's own documented rule says it should match the bin named after the package. The explicit form isn't ambiguous in the first place, so it isn't exposed to that bug.
           installed=""
           for i in $(seq 1 10); do
-            if installed=$(npx --yes "claude-use@${expected}" --version 2>/dev/null); then
+            if installed=$(npx --yes -p "claude-use@${expected}" claude-use --version 2>/dev/null); then
               break
             fi
             echo "npm registry not ready yet, retrying in 10s... ($i/10)"
