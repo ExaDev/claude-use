@@ -204,21 +204,72 @@ function listVersionsDir(dir: string): VersionsDirEntry[] {
     });
 }
 
-/** Looks for a file literally named `name` inside `dir` and confirms it's an executable regular file. Exported so `src/claudeShim.ts`'s PATH-shadow check can reuse the exact same semantics `discoverClaudeBinary`'s own PATH fallback already uses, rather than shelling out to a shell builtin like `command -v`. */
-export function findExecutableInDir(dir: string, name: string): string | undefined {
+/** Node's own docs are explicit that `fs.Stats.mode` on Windows only ever exposes the owner read/write bits — there is no execute bit at all there, since Windows has no POSIX-style per-file executable permission; executability is determined by file extension instead (the same PATHEXT mechanism a shell uses to resolve a bare command name). Falls back to a fixed default list matching Windows' own documented default in case `PATHEXT` is unset. */
+const WINDOWS_DEFAULT_PATHEXT = ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.PS1";
+
+function windowsPathExtensions(pathext: string | undefined): readonly string[] {
+  return (pathext ?? WINDOWS_DEFAULT_PATHEXT)
+    .split(";")
+    .map((ext) => ext.trim())
+    .filter((ext) => ext.length > 0);
+}
+
+/**
+ * The pure decision logic behind `findExecutableInDir`, taking `platform`/`pathext`/the mode-stat as explicit parameters so it's unit-testable against fake Windows/POSIX environments without touching real process globals or a real filesystem — this is exactly the kind of platform-dependent logic that's easy to get subtly wrong (confirmed: it was, twice, across two failed release attempts before this was extracted and actually tested).
+ *
+ * `statFileMode` returns the file's POSIX mode bits if `candidate` exists as a regular file, or `undefined` otherwise (ENOENT collapsed to `undefined`, every other error still propagated by the real implementation).
+ *
+ * On Windows, this can't rely on `fs.Stats.mode`'s execute bits at all (see the comment above `windowsPathExtensions`), so it instead mirrors what a real shell does resolving a bare command name: try `name` as given if it already carries a recognised extension (e.g. a `.exe` filename passed in explicitly, as `resolveOwnExecutablePath`'s Scoop-shim redirect does), otherwise try appending each `PATHEXT` extension in turn and return the first that exists as a file. Everywhere else, a file counts as executable only when its POSIX mode bits actually say so.
+ */
+export function resolveExecutableCandidate(
+  dir: string,
+  name: string,
+  env: {
+    readonly platform: string;
+    readonly pathext: string | undefined;
+    readonly statFileMode: (candidate: string) => number | undefined;
+  },
+): string | undefined {
   const candidate = path.join(dir, name);
-  try {
-    const stat = fs.statSync(candidate);
-    if (stat.isFile() && (stat.mode & 0o111) !== 0) {
-      return candidate;
+
+  if (env.platform === "win32") {
+    const extensions = windowsPathExtensions(env.pathext);
+    const alreadyHasRecognisedExtension = extensions.some((ext) => candidate.toLowerCase().endsWith(ext.toLowerCase()));
+    if (alreadyHasRecognisedExtension) {
+      return env.statFileMode(candidate) !== undefined ? candidate : undefined;
+    }
+    for (const ext of extensions) {
+      const withExt = candidate + ext;
+      if (env.statFileMode(withExt) !== undefined) {
+        return withExt;
+      }
     }
     return undefined;
+  }
+
+  const mode = env.statFileMode(candidate);
+  return mode !== undefined && (mode & 0o111) !== 0 ? candidate : undefined;
+}
+
+function realStatFileMode(candidate: string): number | undefined {
+  try {
+    const stat = fs.statSync(candidate);
+    return stat.isFile() ? stat.mode : undefined;
   } catch (error) {
     if (isEnoent(error)) {
       return undefined;
     }
     throw error;
   }
+}
+
+/** Looks for a file literally named `name` inside `dir` and confirms it's runnable. Exported so `src/claudeShim.ts`'s PATH-shadow and shim-redirect checks can reuse the exact same semantics `discoverClaudeBinary`'s own PATH fallback already uses, rather than shelling out to a shell builtin like `command -v`. Real-wired convenience over `resolveExecutableCandidate` — see that function for the actual decision logic and its own tests. */
+export function findExecutableInDir(dir: string, name: string): string | undefined {
+  return resolveExecutableCandidate(dir, name, {
+    platform: process.platform,
+    pathext: process.env.PATHEXT,
+    statFileMode: realStatFileMode,
+  });
 }
 
 function searchPathForExecutable(
@@ -240,9 +291,11 @@ function searchPathForExecutable(
  *
  * This exists because `process.argv[1]` is not a reliable "path to my own executable" for a Node single-executable-application (SEA) binary the way it is for an ordinary Node script. Per Node's own SEA documentation, a SEA binary's `argv[1]` merely echoes back whatever string appeared on the command line — verbatim, with no path or PATH resolution applied by Node or the OS — whereas a shebang-invoked script (the npm/plain-Node case) genuinely receives its resolved script path there, because the kernel's shebang handling substitutes the shell's already-PATH-resolved pathname before Node ever starts. Concretely: typing the bare word `claude-use` at a shell prompt produces `argv[1] === "claude-use"` for a SEA binary (no directory component at all), which previously got fed straight into `fs.realpathSync`/`path.dirname` as if it were a real path — resolving relative to `process.cwd()` instead of wherever PATH actually found the binary, and throwing ENOENT the moment cwd didn't happen to contain a same-named file. Confirmed via a minimal instrumented SEA binary reproducing exactly this, and matching the exact failure every release verification job hit once invoking `claude-use`/`claude` as a bare PATH-resolved command rather than by absolute path.
  *
- * A second, separate wrinkle: some install channels invoke this binary through a re-exec wrapper rather than running it directly. Scoop's own shim (`~/scoop/shims/claude-use.exe`) is a compiled proxy that launches the real target — living in a versioned app directory Scoop deliberately keeps off PATH — as a *child process*, so this process's own `argv1` is an absolute path outside every PATH entry. Placing the new `claude` alongside that path (as the Homebrew/direct-invocation case correctly does) would create a file PATH can never find. Confirmed against a real Scoop install: `claude-use shim enable` placed `claude.exe` next to the real target in the app directory, and the immediately following `claude --version` failed with "not recognized" because that directory was never on PATH.
+ * A second, separate wrinkle: some install channels invoke this binary through a re-exec wrapper rather than running it directly. Scoop's own shim (`~/scoop/shims/claude-use.exe`) is a compiled proxy (confirmed from its source: https://github.com/ScoopInstaller/Shim/blob/main/cs/shim.cs) that calls `CreateProcessW(null, cmd, ...)` with the real target's absolute path as the first token of `cmd` — per the Win32 `CreateProcess` contract, passing `lpApplicationName = null` means that first token becomes both the module launched *and* what the child receives as its own command line — so this process ends up seeing the real target's absolute path, living in a versioned app directory Scoop deliberately keeps off PATH, not the shim's own PATH-visible location. Placing the new `claude` alongside that path (as the Homebrew/direct-invocation case correctly does) would create a file PATH can never find. Confirmed against a real Scoop install: `claude-use shim enable` placed `claude.exe` next to the real target in the app directory, and the immediately following `claude --version` failed with "not recognized" because that directory was never on PATH.
  *
- * The algorithm: if the raw candidate contains a path separator, it names a real (relative-to-cwd or absolute) path — resolve it against cwd. If that resolved path's directory is itself on PATH, use it directly (the Homebrew/direct-invocation case: never realpath'd, since a package manager's PATH-visible entry is often a symlink elsewhere — e.g. Homebrew's `/opt/homebrew/bin/claude-use` -> its own Cellar keg — and callers need that PATH-visible location, not the dereferenced target). If that directory is *not* on PATH (the Scoop re-exec case above), search PATH for a separately-installed entry sharing our own invoked basename before falling back to the direct candidate. If the raw candidate is a bare word with no separator, it can only have been found via PATH lookup in the first place, so search PATH ourselves for the first directory containing an executable of that name, reconstructing exactly what the shell already did.
+ * The redirect-if-not-on-PATH check below applies uniformly to whichever candidate we end up with — whether derived from a path-shaped `argv1`, or from the `execPath` fallback (`argv1` undefined) — since it's unconfirmed whether a Windows SEA binary duplicates `argv[0]` into `argv[1]` the same way the POSIX build does; treating both sources identically is strictly more robust either way and regresses nothing already confirmed working.
+ *
+ * The algorithm: if the raw candidate is a bare word with no path separator, it can only have been found via PATH lookup in the first place (Node/the OS applies no resolution to it at all), so search PATH ourselves for the first directory containing an executable of that name, reconstructing exactly what the shell already did. Otherwise, resolve it (or the `execPath` fallback) against cwd, then check whether the *resulting directory* is itself on PATH: if so, use it directly (the Homebrew/direct-invocation case — never realpath'd, since a package manager's PATH-visible entry is often a symlink elsewhere, e.g. Homebrew's `/opt/homebrew/bin/claude-use` -> its own Cellar keg, and callers need that PATH-visible location, not the dereferenced target). If that directory is *not* on PATH (the Scoop re-exec case above), search PATH for a separately-installed entry sharing our own invoked basename before falling back to the direct candidate.
  */
 export function resolveOwnExecutablePath(env: {
   readonly argv1: string | undefined;
@@ -251,23 +304,19 @@ export function resolveOwnExecutablePath(env: {
   readonly pathDirs: readonly string[];
   readonly findExecutableInDir: (dir: string, name: string) => string | undefined;
 }): string {
-  if (env.argv1 === undefined) {
-    return env.execPath;
-  }
-
-  if (!env.argv1.includes("/") && !env.argv1.includes("\\")) {
+  if (env.argv1 !== undefined && !env.argv1.includes("/") && !env.argv1.includes("\\")) {
     return searchPathForExecutable(env.pathDirs, env.argv1, env.findExecutableInDir) ?? env.execPath;
   }
 
-  const directCandidate = path.resolve(env.cwd, env.argv1);
-  const directDir = path.dirname(directCandidate);
-  const directDirOnPath = env.pathDirs.some((dir) => path.resolve(dir) === directDir);
-  if (directDirOnPath) {
-    return directCandidate;
+  const candidate = env.argv1 === undefined ? env.execPath : path.resolve(env.cwd, env.argv1);
+  const candidateDir = path.dirname(candidate);
+  const candidateDirOnPath = env.pathDirs.some((dir) => path.resolve(dir) === candidateDir);
+  if (candidateDirOnPath) {
+    return candidate;
   }
 
-  const viaPath = searchPathForExecutable(env.pathDirs, path.basename(directCandidate), env.findExecutableInDir);
-  return viaPath ?? directCandidate;
+  const viaPath = searchPathForExecutable(env.pathDirs, path.basename(candidate), env.findExecutableInDir);
+  return viaPath ?? candidate;
 }
 
 /** Real-wired convenience over `resolveOwnExecutablePath`, reading the actual process globals — this is what every real call site (`cli.ts`, `doctor.ts`, `claudeShim.ts`'s command wiring) should use instead of reading `process.argv[1]`/`process.execPath` directly. */
