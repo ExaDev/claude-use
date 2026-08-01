@@ -52,6 +52,15 @@ export function claudeTargetFilename(ownExecutablePath: string): string {
 }
 
 /**
+ * `cli.ts`'s own name-dispatch check: is `invokedName` (the basename of however this binary was invoked) one of the two names `shim enable` ever creates, per `claudeTargetFilename` above? `path.basename` includes the file extension, so a bare `=== "claude"` comparison never matches the Windows case, where the file must be named `claude.exe` to be directly invocable at all.
+ *
+ * Confirmed as a real, previously-undetected bug against an actual Scoop install: the shim-placement and hardlink-source bugs fixed in prior releases had never let a Windows `claude.exe` invocation reach this far before, so this exact mismatch never surfaced until the shim itself finally worked end-to-end — invoking the newly-created `claude.exe` fell through to claude-use's own CLI (printing its own `--version`) instead of the launcher.
+ */
+export function isInvokedAsClaude(invokedName: string): boolean {
+  return invokedName === "claude" || invokedName.toLowerCase() === "claude.exe";
+}
+
+/**
  * The directories `discoverClaudeBinary`'s PATH-fallback search must exclude to avoid recursively discovering/spawning this very tool: wherever the running executable itself lives, plus wherever `shim enable` last placed a `claude`-named copy, when that's a *different* directory (i.e. `--dir` was used). Without folding the recorded shim directory in here too, `claude-use run`/`claude-use doctor` would only exclude their own directory, not a `--dir`-placed shim living elsewhere on PATH.
  */
 export function resolveOwnInstallDirs(paths: LayoutPaths, ownExecutablePath: string): string[] {

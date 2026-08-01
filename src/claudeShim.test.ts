@@ -10,6 +10,7 @@ import {
   disableClaudeShim,
   enableClaudeShim,
   findPathShadow,
+  isInvokedAsClaude,
   resolveClaudeTargetPath,
   type LinkFs,
 } from "./claudeShim";
@@ -46,6 +47,28 @@ describe("claudeShim", () => {
 
     it("names the target bare `claude`, not `claude.cjs`, for an npm install's dist/cli.cjs", () => {
       expect(claudeTargetFilename("/usr/local/lib/node_modules/claude-use/dist/cli.cjs")).toBe("claude");
+    });
+  });
+
+  describe("isInvokedAsClaude", () => {
+    it("matches the extensionless POSIX name", () => {
+      expect(isInvokedAsClaude("claude")).toBe(true);
+    });
+
+    it("matches the Windows .exe name -- the confirmed real bug: path.basename includes the extension, so a bare === \"claude\" comparison never matched here, silently falling through to claude-use's own CLI instead of the launcher", () => {
+      expect(isInvokedAsClaude("claude.exe")).toBe(true);
+    });
+
+    it("matches the Windows .exe name case-insensitively", () => {
+      expect(isInvokedAsClaude("Claude.EXE")).toBe(true);
+    });
+
+    it("does not match claude-use itself", () => {
+      expect(isInvokedAsClaude("claude-use")).toBe(false);
+    });
+
+    it("does not match claude-use.exe", () => {
+      expect(isInvokedAsClaude("claude-use.exe")).toBe(false);
     });
   });
 

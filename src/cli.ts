@@ -10,7 +10,7 @@ import { CategoryClassificationOverlaySchema, CategoryClassificationSchema } fro
 import { readJson } from "./config/store";
 import { registerCheckCommand } from "./check";
 import { registerConfigureCommand } from "./configure";
-import { registerShimCommand, resolveOwnInstallDirs } from "./claudeShim";
+import { isInvokedAsClaude, registerShimCommand, resolveOwnInstallDirs } from "./claudeShim";
 import { registerDoctorCommand } from "./doctor";
 import { registerIdentityCommand } from "./identityManager";
 import { registerProfileCommand } from "./configProfiles";
@@ -142,7 +142,7 @@ function runClaude(argvOverride?: readonly string[]): void {
 
 function main(): void {
   const invokedName = path.basename(process.argv[1] ?? "claude-use");
-  if (invokedName === "claude") {
+  if (isInvokedAsClaude(invokedName)) {
     runClaude();
   } else {
     buildClaudeUseProgram().parse(process.argv);
