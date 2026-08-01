@@ -10,6 +10,7 @@ import { CategoryClassificationOverlaySchema, CategoryClassificationSchema } fro
 import { readJson } from "./config/store";
 import { registerCheckCommand } from "./check";
 import { registerConfigureCommand } from "./configure";
+import { registerDoctorCommand } from "./doctor";
 import { registerIdentityCommand } from "./identityManager";
 import { registerProfileCommand } from "./configProfiles";
 import { registerRulesCommand } from "./directoryRules";
@@ -34,7 +35,7 @@ import {
  *
  * `claude` runs the launcher (`src/launcher.ts`'s `runLauncher`), wired here with real ports (`src/realPorts.ts`) instead of the fakes every test in this project uses. It resolves the identity, loads and assembles the cascade for the current directory, resyncs that identity's symlink farm to match, and spawns the real `claude` binary with `CLAUDE_CONFIG_DIR` pointed at the farm.
  *
- * `claude-use` runs the Commander tree exposing `identity`/`profile`/`rules`/`check`/`configure` subcommands, each a thin adapter over `src/config/store.ts` and the Zod schemas in `src/config/schema.ts` — plus `run`, which reaches the exact same launcher pipeline as the `claude` binary above, just fed a different argv source, so a `claude`-named file on `PATH` is never required.
+ * `claude-use` runs the Commander tree exposing `identity`/`profile`/`rules`/`check`/`configure`/`doctor` subcommands, each a thin adapter over `src/config/store.ts` and the Zod schemas in `src/config/schema.ts` — plus `run`, which reaches the exact same launcher pipeline as the `claude` binary above, just fed a different argv source, so a `claude`-named file on `PATH` is never required.
  */
 function buildClaudeUseProgram(): Command {
   const program = new Command();
@@ -51,6 +52,7 @@ function buildClaudeUseProgram(): Command {
   registerRulesCommand(program, paths);
   registerCheckCommand(program, paths);
   registerConfigureCommand(program, paths);
+  registerDoctorCommand(program, paths);
 
   program
     .command("run")
