@@ -391,8 +391,14 @@ jobs:
               downloaded = Dir["claude-use-*"].first
               bin.install downloaded => "claude-use"
               chmod 0755, bin/"claude-use"
-              # \`claude\` and \`claude-use\` are the same compiled executable — it decides which behaviour to run based on the name it was invoked as, so both names need to reach it.
-              bin.install_symlink bin/"claude-use" => "claude"
+            end
+
+            def caveats
+              <<~EOS
+                claude-use is installed alone -- nothing on this system claims the \`claude\` command by default.
+                Run \`claude-use run [args...]\` to use the launcher directly, or \`claude-use shim enable\` once
+                if you'd also like the shorter \`claude @<name>\` form (\`claude-use shim disable\` undoes it).
+              EOS
             end
 
             test do
@@ -453,10 +459,7 @@ jobs:
                       "hash": "${WINDOWS_SHA}"
                   }
               },
-              "bin": [
-                  ["claude-use.exe", "claude-use"],
-                  ["claude-use.exe", "claude"]
-              ],
+              "bin": "claude-use.exe",
               "checkver": {
                   "github": "https://github.com/ExaDev/claude-use"
               },
@@ -497,6 +500,27 @@ jobs:
             echo "version mismatch: installed=$INSTALLED expected=$EXPECTED"
             exit 1
           fi
+      - name: Confirm claude is not installed by default
+        run: |
+          if command -v claude >/dev/null 2>&1; then
+            echo "error: 'claude' should not be on PATH after a fresh install -- found $(command -v claude)"
+            exit 1
+          fi
+      - name: shim enable/disable round-trip
+        run: |
+          claude-use shim enable
+          claude --version
+          INSTALLED=$(claude --version)
+          EXPECTED="${GITHUB_REF_NAME#v}"
+          if [ "$INSTALLED" != "$EXPECTED" ]; then
+            echo "version mismatch after shim enable: installed=$INSTALLED expected=$EXPECTED"
+            exit 1
+          fi
+          claude-use shim disable
+          if command -v claude >/dev/null 2>&1; then
+            echo "error: 'claude' should be gone after shim disable -- found $(command -v claude)"
+            exit 1
+          fi
 
   verify-tap-linux:
     name: Verify Homebrew install (Linux)
@@ -523,6 +547,27 @@ jobs:
           EXPECTED="${GITHUB_REF_NAME#v}"
           if [ "$INSTALLED" != "$EXPECTED" ]; then
             echo "version mismatch: installed=$INSTALLED expected=$EXPECTED"
+            exit 1
+          fi
+      - name: Confirm claude is not installed by default
+        run: |
+          if command -v claude >/dev/null 2>&1; then
+            echo "error: 'claude' should not be on PATH after a fresh install -- found $(command -v claude)"
+            exit 1
+          fi
+      - name: shim enable/disable round-trip
+        run: |
+          claude-use shim enable
+          claude --version
+          INSTALLED=$(claude --version)
+          EXPECTED="${GITHUB_REF_NAME#v}"
+          if [ "$INSTALLED" != "$EXPECTED" ]; then
+            echo "version mismatch after shim enable: installed=$INSTALLED expected=$EXPECTED"
+            exit 1
+          fi
+          claude-use shim disable
+          if command -v claude >/dev/null 2>&1; then
+            echo "error: 'claude' should be gone after shim disable -- found $(command -v claude)"
             exit 1
           fi
 
@@ -557,6 +602,29 @@ jobs:
             Write-Host "version mismatch: installed=$installed expected=$expected"
             exit 1
           }
+      - name: Confirm claude is not installed by default
+        shell: pwsh
+        run: |
+          if (Get-Command claude -ErrorAction SilentlyContinue) {
+            Write-Host "error: 'claude' should not be on PATH after a fresh install"
+            exit 1
+          }
+      - name: shim enable/disable round-trip
+        shell: pwsh
+        run: |
+          claude-use shim enable
+          $installed = claude --version
+          Write-Host $installed
+          $expected = $env:GITHUB_REF_NAME -replace '^v', ''
+          if ($installed -ne $expected) {
+            Write-Host "version mismatch after shim enable: installed=$installed expected=$expected"
+            exit 1
+          }
+          claude-use shim disable
+          if (Get-Command claude -ErrorAction SilentlyContinue) {
+            Write-Host "error: 'claude' should be gone after shim disable"
+            exit 1
+          }
 
   # Confirms `npx claude-use` genuinely works post-publish, on all three platforms — unlike the Homebrew/Scoop verify jobs above, this one channel is meant to work everywhere, so it gets a matrix rather than one job per OS. GitHub-hosted Windows runners ship Git Bash, so `shell: bash` here needs no PowerShell-specific branching.
   verify-npm:
@@ -587,5 +655,93 @@ jobs:
           echo "$installed"
           if [ "$installed" != "$expected" ]; then
             echo "version mismatch: installed=$installed expected=$expected"
+            exit 1
+          fi
+      # npx alone doesn't leave a stable, PATH-visible claude-use for a shim to attach to -- a real global install is needed for the round-trip below, distinct from the ephemeral npx invocation just proven above.
+      - name: Global install for the shim round-trip
+        shell: bash
+        run: npm install -g "claude-use@${GITHUB_REF_NAME#v}"
+      - name: Confirm claude is not installed by default
+        shell: bash
+        run: |
+          if command -v claude >/dev/null 2>&1; then
+            echo "error: 'claude' should not be on PATH after a fresh install -- found $(command -v claude)"
+            exit 1
+          fi
+      # On macOS/Linux, an npm install's own dist/cli.cjs is directly executable via its shebang once hardlinked to a bare `claude`, so shim enable should succeed there. On Windows, an npm-installed claude-use runs under Node with no bundled .exe and no shebang-based dispatch, so shim enable must refuse with a clear error instead of producing a broken file -- both branches are asserted, not just hoped for.
+      - name: shim enable/disable round-trip (macOS/Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          claude-use shim enable
+          claude --version
+          INSTALLED=$(claude --version)
+          EXPECTED="${GITHUB_REF_NAME#v}"
+          if [ "$INSTALLED" != "$EXPECTED" ]; then
+            echo "version mismatch after shim enable: installed=$INSTALLED expected=$EXPECTED"
+            exit 1
+          fi
+          claude-use shim disable
+          if command -v claude >/dev/null 2>&1; then
+            echo "error: 'claude' should be gone after shim disable -- found $(command -v claude)"
+            exit 1
+          fi
+      - name: shim enable correctly refuses (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          if claude-use shim enable 2>err.log; then
+            echo "error: shim enable should have refused on an npm-on-Windows install"
+            exit 1
+          fi
+          if ! grep -qi "Cannot create a working" err.log; then
+            echo "error: refused for an unexpected reason:"
+            cat err.log
+            exit 1
+          fi
+
+  # There is no other CI coverage of install.sh itself at all -- every other verify job exercises a package manager's own install mechanism, never the plain curl script most users will actually run first.
+  verify-install-script:
+    name: Verify install.sh (${{ matrix.os }})
+    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
+    needs: [release]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Download and run install.sh into a scratch directory
+        run: |
+          scratch_dir="$RUNNER_TEMP/claude-use-install-test"
+          mkdir -p "$scratch_dir"
+          CLAUDE_USE_INSTALL_DIR="$scratch_dir" sh -c "$(curl -fsSL "https://github.com/ExaDev/claude-use/releases/download/${GITHUB_REF_NAME}/install.sh")"
+          echo "$scratch_dir" >> "$GITHUB_PATH"
+      - name: Check installed version matches the tag, and that claude is not installed by default
+        run: |
+          expected="${GITHUB_REF_NAME#v}"
+          installed=$(claude-use --version)
+          echo "$installed"
+          if [ "$installed" != "$expected" ]; then
+            echo "version mismatch: installed=$installed expected=$expected"
+            exit 1
+          fi
+          if command -v claude >/dev/null 2>&1; then
+            echo "error: 'claude' should not be on PATH after a fresh install -- found $(command -v claude)"
+            exit 1
+          fi
+      - name: shim enable/disable round-trip
+        run: |
+          expected="${GITHUB_REF_NAME#v}"
+          claude-use shim enable
+          claude --version
+          installed=$(claude --version)
+          if [ "$installed" != "$expected" ]; then
+            echo "version mismatch after shim enable: installed=$installed expected=$expected"
+            exit 1
+          fi
+          claude-use shim disable
+          if command -v claude >/dev/null 2>&1; then
+            echo "error: 'claude' should be gone after shim disable -- found $(command -v claude)"
             exit 1
           fi
