@@ -14,6 +14,6 @@
     "outDir": "dist",
     "rootDir": "."
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts", "scripts/**/*.mts", "vitest.config.mts"],
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "scripts/**/*.mts", "vitest.config.mts", "eslint.config.ts"],
   "exclude": ["node_modules", "dist"]
 }

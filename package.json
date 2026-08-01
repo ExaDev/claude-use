@@ -28,6 +28,7 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "lint": "eslint . --max-warnings 0",
     "test": "vitest run",
     "build": "node scripts/build.mts",
     "build:bundle": "node scripts/build.mts --bundle-only",
@@ -42,10 +43,15 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^26.1.2",
     "@types/picomatch": "^4.0.3",
     "esbuild": "^0.28.1",
-    "typescript": "^7.0.2",
+    "eslint": "^10.8.0",
+    "globals": "^17.8.0",
+    "jiti": "^2.7.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.65.0",
     "vitest": "^4.1.10"
   }
 }
