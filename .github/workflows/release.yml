@@ -1,0 +1,112 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  # macOS arm64 is the only target Node core itself tests and verifies `--build-sea` against upstream. This job's binary is the one this project actually stands behind.
+  build-arm64:
+    name: Build (macOS arm64, verified)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26.5.0"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+      - run: mv dist/claude-use-sea dist/claude-use-macos-arm64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claude-use-macos-arm64
+          path: dist/claude-use-macos-arm64
+          retention-days: 7
+
+  # x64 is explicitly NOT part of Node core's own SEA test matrix (confirmed against current Node.js docs — see scripts/build.mts's own header comment). This job attempts the same build on an Intel runner as a best-effort convenience for x64 users, but nothing here proves the resulting binary is supported or even fully functional upstream — only that the build command itself completed and the smoke test below ran without crashing. It is published labelled as unverified, and this job is allowed to fail without blocking the arm64 release below.
+  build-x64-best-effort:
+    name: Build (macOS x64, best-effort, unverified)
+    runs-on: macos-13
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26.5.0"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Smoke test (best-effort only — a pass here is not proof of upstream support)
+        run: ./dist/claude-use-sea --help || true
+
+      - run: mv dist/claude-use-sea dist/claude-use-macos-x64-unverified
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claude-use-macos-x64-unverified
+          path: dist/claude-use-macos-x64-unverified
+          retention-days: 7
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-arm64, build-x64-best-effort]
+    if: always() && needs.build-arm64.result == 'success'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26.5.0"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Generate schema/*.schema.json fresh (it's already committed, but regenerating here keeps the release build honest — see the CI drift guard in ci.yml) then stamp $id to this tag's own version-pinned release URL. This is deliberately distinct from install.sh's unpinned releases/latest/download/... URL: a schema an editor references long-term must stay put at whatever version it was written against.
+      - run: pnpm schema
+      - run: node scripts/stamp-schema-ids.mjs "${GITHUB_REF_NAME}"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: claude-use-macos-arm64
+          path: artifacts
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: claude-use-macos-x64-unverified
+          path: artifacts
+        continue-on-error: true
+
+      - name: List release assets
+        run: ls -la artifacts/ schema/
+
+      - uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/claude-use-macos-arm64
+            artifacts/claude-use-macos-x64-unverified
+            schema/*.schema.json
+          generate_release_notes: true
+          body: |
+            ## Platform support
+
+            - **macOS arm64** (`claude-use-macos-arm64`): verified. Node core tests and supports `--build-sea` on this target.
+            - **macOS x64** (`claude-use-macos-x64-unverified`): best-effort only. Node core does not test or verify single-executable-application support on x64 — this binary is provided for convenience, not as a supported target. If it's missing from this release, the best-effort build failed and was skipped rather than silently shipping a broken binary.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
