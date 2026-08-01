@@ -150,7 +150,13 @@ export type DiagnosticCode =
   /** The previous farm's manifest is missing or unreadable, so reconciliation ran in conservative mode. */
   | "FARM_MANIFEST_MISSING"
   /** A file Claude Code wrote into a materialised farm directory differs from the canonical copy of the same path. */
-  | "RECONCILE_CONFLICT";
+  | "RECONCILE_CONFLICT"
+  /** Reconciliation proposed adopting a path whose real classification is `secret`. Refused: the secret floor applies to data moving into `~/.claude` exactly as it applies to data moving out. */
+  | "RECONCILE_SECRET_BLOCKED"
+  /** A previous launch was interrupted mid-swap and this launch completed or undid the half-finished work. */
+  | "FARM_SWAP_RECOVERED"
+  /** A superseded farm could not be discarded because it still held data the new farm has its own entry for, so it was left on disk for the user to look at. */
+  | "FARM_PREVIOUS_RETAINED";
 
 /** Severity of a diagnostic. An `error` means a configuration layer asked for something the tool refused to do. */
 export type DiagnosticSeverity = "error" | "warning" | "info";
