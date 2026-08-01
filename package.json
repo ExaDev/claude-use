@@ -9,7 +9,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "node scripts/build.mts"
+    "build": "node scripts/build.mts",
+    "schema": "node scripts/gen-schema.mts"
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0",

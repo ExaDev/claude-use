@@ -1,0 +1,27 @@
+{
+  "$id": "https://github.com/ExaDev/claude-use/schema/Identity.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "defaultConfigProfile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "allowAmbientCredential": {
+      "default": false,
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "additionalProperties": false
+}

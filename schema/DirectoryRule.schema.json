@@ -1,0 +1,156 @@
+{
+  "$id": "https://github.com/ExaDev/claude-use/schema/DirectoryRule.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "extends": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "categories": {
+      "type": "object",
+      "properties": {
+        "runtime": {
+          "type": "boolean"
+        },
+        "history": {
+          "type": "boolean"
+        },
+        "knowledge": {
+          "type": "boolean"
+        },
+        "settings": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "entries": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^(?:secret|runtime|history|knowledge|settings)\\/(?!\\/)\\S(?:.*\\S)?$"
+      },
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "boolean"
+              },
+              "when": {
+                "type": "object",
+                "properties": {
+                  "newerThan": {
+                    "type": "string",
+                    "pattern": "^(?:0|[1-9][0-9]*)(?:ms|s|m|h|d|w)$"
+                  },
+                  "olderThan": {
+                    "type": "string",
+                    "pattern": "^(?:0|[1-9][0-9]*)(?:ms|s|m|h|d|w)$"
+                  },
+                  "maxSizeBytes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "branch": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "env": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "additionalProperties": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "value",
+              "when"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "launch": {
+      "type": "object",
+      "properties": {
+        "skipPermissions": {
+          "type": "boolean"
+        },
+        "remoteControl": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "configProfile": {
+      "type": "string",
+      "minLength": 1
+    },
+    "identity": {
+      "type": "string",
+      "minLength": 1
+    },
+    "when": {
+      "type": "object",
+      "properties": {
+        "newerThan": {
+          "type": "string",
+          "pattern": "^(?:0|[1-9][0-9]*)(?:ms|s|m|h|d|w)$"
+        },
+        "olderThan": {
+          "type": "string",
+          "pattern": "^(?:0|[1-9][0-9]*)(?:ms|s|m|h|d|w)$"
+        },
+        "maxSizeBytes": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1
+        },
+        "env": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "path"
+  ],
+  "additionalProperties": false
+}
