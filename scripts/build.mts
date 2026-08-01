@@ -6,12 +6,18 @@ import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
 
 /**
- * Bundles `src/cli.ts` with esbuild into a single CJS file, then invokes the now-stable `node --build-sea=<config>` single command (Node >= v25.5.0) to produce a self-contained single-executable-application binary.
+ * Bundles `src/cli.ts` with esbuild into a single CJS file, then — unless `--bundle-only` is given — invokes the now-stable `node --build-sea=<config>` single command (Node >= v25.5.0) to produce a self-contained single-executable-application binary.
  *
  * This deliberately does NOT use the older `--experimental-sea-config` + manual `postject` pipeline the README used to describe — `--build-sea` handles bundle-copy, signature removal, blob injection, and re-signing in one step, and postject is not a dependency of this project.
  *
  * macOS SEA support is verified/tested upstream on arm64 only; x64 is explicitly unsupported and skipped in Node's own test suite. This script builds for whatever architecture it runs on and does not claim portability beyond that — a later CI phase attempts x64 as clearly-labelled best-effort, separate from this local build.
+ *
+ * `--bundle-only` produces just `dist/cli.cjs` (with a `#!/usr/bin/env node` shebang) and skips every SEA-specific step — this is what `npm publish`'s own `prepublishOnly` script runs, since the npm-distributed package needs the plain bundle to execute under the installer's own Node, not a platform-specific native binary with an embedded runtime.
  */
+const bundleOnly = process.argv.includes("--bundle-only");
+
+/** The lowest Node version this bundle is ever asked to run under — set by `commander@15`'s own `engines.node`, the strictest floor among this project's runtime dependencies, and mirrored in package.json's own `engines` field. Fixed rather than tied to whichever Node version happens to run this build script: the SEA binary embeds its own runtime regardless, and the npm-published bundle runs under whatever Node the installer has, which is only guaranteed to be at least this floor. */
+const ESBUILD_TARGET = "node22";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -37,11 +43,14 @@ async function bundle(): Promise<void> {
     bundle: true,
     platform: "node",
     format: "cjs",
-    target: `node${process.versions.node.split(".")[0]}`,
+    target: ESBUILD_TARGET,
     outfile: path.join(distDir, bundleFileName),
+    // A shebang is inert for the SEA build (Node's CommonJS loader strips a leading `#!` line from any entry point regardless) and required for the npm-published bin script to be directly executable.
+    banner: { js: "#!/usr/bin/env node" },
     minify: false,
     logLevel: "info",
   });
+  fs.chmodSync(path.join(distDir, bundleFileName), 0o755);
 }
 
 function writeSeaConfig(): string {
@@ -100,9 +109,13 @@ function reportSize(outputPath: string): void {
 }
 
 async function main(): Promise<void> {
-  requireBuildSeaSupport();
   fs.mkdirSync(distDir, { recursive: true });
   await bundle();
+  if (bundleOnly) {
+    reportSize(path.join(distDir, bundleFileName));
+    return;
+  }
+  requireBuildSeaSupport();
   const seaConfigPath = writeSeaConfig();
   const outputPath = buildSea(seaConfigPath);
   reportSize(outputPath);

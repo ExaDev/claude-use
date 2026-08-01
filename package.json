@@ -1,15 +1,38 @@
 {
   "name": "claude-use",
   "version": "0.1.0",
-  "private": true,
   "description": "A profile manager and launcher for Claude Code that lets one person run multiple logins from one machine while controlling what gets shared between them.",
   "license": "Apache-2.0",
+  "author": "Joseph Mearman <joseph@mearman.co.uk>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ExaDev/claude-use.git"
+  },
+  "homepage": "https://github.com/ExaDev/claude-use#readme",
+  "bugs": "https://github.com/ExaDev/claude-use/issues",
+  "keywords": [
+    "claude-code",
+    "claude",
+    "cli"
+  ],
   "packageManager": "pnpm@11.6.0",
   "type": "commonjs",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "bin": {
+    "claude": "dist/cli.cjs",
+    "claude-use": "dist/cli.cjs"
+  },
+  "files": [
+    "dist/cli.cjs"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "build": "node scripts/build.mts",
+    "build:bundle": "node scripts/build.mts --bundle-only",
+    "prepublishOnly": "pnpm build:bundle",
     "schema": "node scripts/gen-schema.mts"
   },
   "dependencies": {
