@@ -59,6 +59,39 @@ jobs:
           path: dist/claude-use-macos-x64-unverified
           retention-days: 7
 
+  # Publishes the plain esbuild bundle (not a SEA binary — the npm-installed package runs under whatever Node the installer already has) as the `claude-use` npm package, so `npx claude-use` and `npm install -g claude-use` work alongside the GitHub Release binary above. Uses npm's OIDC trusted publishing, the same pattern this org's other published packages use — no NPM_TOKEN secret. Trusted publishing itself is configured once, out of band, on the package's own npmjs.com settings page (linking this exact repo/workflow as an authorised publisher); nothing in this workflow can set that up.
+  publish-npm:
+    name: Publish npm package
+    runs-on: ubuntu-latest
+    needs: [build-arm64]
+    permissions:
+      id-token: write # OIDC identity for npm trusted publishing (no NPM_TOKEN)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "26.5.0"
+          cache: pnpm
+          # registry-url is deliberately absent. Setting it makes setup-node write an .npmrc containing an _authToken line, and that line wins over the OIDC token exchange -- so the setting that looks like it configures the registry is exactly the one that would stop trusted publishing working.
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Upgrade npm for OIDC trusted publishing (needs npm CLI >=11.5.1)
+        run: npm install -g npm@latest
+
+      - name: Set package version from the pushed tag
+        run: npm pkg set version="${GITHUB_REF_NAME#v}"
+
+      - run: pnpm build:bundle
+
+      - run: npm publish
+        env:
+          # Blanked, not omitted -- an inherited NPM_TOKEN/NODE_AUTH_TOKEN would otherwise be used in preference to the OIDC exchange.
+          NODE_AUTH_TOKEN: ""
+
   release:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
