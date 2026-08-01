@@ -1,0 +1,489 @@
+import os from "node:os";
+import path from "node:path";
+import type { Command } from "commander";
+import { z } from "zod";
+
+import categoriesDefaultJson from "./config/categories.default.json";
+import { cosmiconfigReader } from "./config/load";
+import {
+  CategoryClassificationOverlaySchema,
+  CategoryClassificationSchema,
+  SHIPPED_CATEGORY_DEFAULTS,
+  type CategoryClassification,
+  type CategoryClassificationOverlay,
+  type Identity,
+} from "./config/schema";
+import { readJson } from "./config/store";
+import { loadCascadeInput, readDirectorySelections } from "./launcher/cascade";
+import { buildEntryFacts } from "./launcher/farm";
+import { AMBIENT_CREDENTIAL_VARS, evaluateAmbientCredentialGuard, type AmbientCredentialGuardResult } from "./launcher/guard";
+import { decideConfigProfile, decideIdentity, loadIdentity, type ConfigProfileDecisionSource, type IdentityDecisionSource } from "./launcher/identity";
+import type { FarmFs, RunPort } from "./launcher/ports";
+import { resolveClaudeHome, type LayoutPaths } from "./paths";
+import {
+  realFarmFs,
+  realFsPort,
+  realRunPort,
+  resolveGitBranch,
+} from "./realPorts";
+import {
+  detectEncodingAmbiguity,
+  resolveDecisions,
+  type CascadeInput,
+  type Decision,
+  type EncodingAmbiguity,
+  type EntryFacts,
+  type FlattenedCascade,
+  type ResolvedState,
+} from "./resolve";
+
+/** The literal key prefix a `history/projects/` entries key always carries — see `src/resolve/match.ts`'s own `PROJECTS_PREFIX`, which is the canonical (category-stripped) form of this same prefix. */
+const HISTORY_PROJECTS_KEY_PREFIX = "history/projects/";
+
+/**
+ * Recovers the path fragment a `history/projects/` entries key was written with, from its `rawKey` — the only place the as-written fragment survives past canonicalisation. Undefined for any rule not written under this prefix.
+ */
+function projectFragmentOf(rawKey: string): string | undefined {
+  return rawKey.startsWith(HISTORY_PROJECTS_KEY_PREFIX) ? rawKey.slice(HISTORY_PROJECTS_KEY_PREFIX.length) : undefined;
+}
+
+/** The immediate child names actually present under `~/.claude/projects/` in a fact manifest — Claude Code's own real, encoded directory names, used to report how many an ambiguous pattern actually matches today. */
+function existingProjectNames(facts: EntryFacts): string[] {
+  const names = new Set<string>();
+  const prefix = "projects/";
+  for (const rel of facts.entries.keys()) {
+    if (!rel.startsWith(prefix)) {
+      continue;
+    }
+    const rest = rel.slice(prefix.length);
+    const head = rest.split("/")[0];
+    if (head !== undefined && head !== "") {
+      names.add(head);
+    }
+  }
+  return [...names];
+}
+
+/**
+ * Flags every `history/projects/` entries rule in scope whose encoded form could plausibly correspond to more than one real path.
+ *
+ * Reuses `src/resolve/projects.ts`'s own `detectEncodingAmbiguity` rather than reimplementing the detection — this function's whole job is recovering the as-written fragments from the flattened cascade's compiled rules and handing them to that function, plus the real project directory names already present in the fact manifest so the report can say how many a pattern actually matches today.
+ */
+export function flagAmbiguousEncodings(flattened: FlattenedCascade, facts: EntryFacts): EncodingAmbiguity[] {
+  const fragments: string[] = [];
+  for (const rule of flattened.rules.values()) {
+    const fragment = projectFragmentOf(rule.rawKey);
+    if (fragment !== undefined) {
+      fragments.push(fragment);
+    }
+  }
+  if (fragments.length === 0) {
+    return [];
+  }
+  return detectEncodingAmbiguity(fragments, { home: facts.home, existingNames: existingProjectNames(facts) });
+}
+
+/** Renders one entry's resolved decision as a single explanatory line, for `claude-use check`'s printout. */
+export function formatDecision(decision: Decision): string {
+  const status = decision.shared ? "shared" : "hidden";
+  let reason: string;
+  switch (decision.via) {
+    case "secret-floor":
+      reason = "secret (never shared, cannot be overridden by any layer)";
+      break;
+    case "unclassified":
+      reason = "unclassified entry (no category recognises it)";
+      break;
+    case "entry-rule":
+      reason =
+        decision.rule === undefined
+          ? "an entries rule"
+          : `entries rule "${decision.rule.rawKey}" from layer ${decision.rule.layer}`;
+      break;
+    case "category-override":
+      reason = `category "${decision.category ?? "?"}" overridden by a layer`;
+      break;
+    case "category-default":
+      reason = `category "${decision.category ?? "?"}" shipped default`;
+      break;
+  }
+  const eliminatedNote =
+    decision.eliminated !== undefined && decision.eliminated.length > 0
+      ? ` [${decision.eliminated.length} more specific rule(s) eliminated by a failing when-condition]`
+      : "";
+  return `${decision.relPath}: ${status} — ${reason}${eliminatedNote}`;
+}
+
+/** The result of looking up the macOS Keychain service name Claude Code is actually using for one identity's farm. */
+export interface KeychainLookupResult {
+  readonly checked: true;
+  readonly found: boolean;
+  readonly serviceName?: string;
+  readonly note: string;
+}
+
+/** Extracts the `svce` (service name) attribute from `security`'s own human-readable attribute dump, which it writes to stderr rather than stdout. */
+function parseKeychainServiceName(stderr: string): string | undefined {
+  const match = /"svce"<blob>="([^"]*)"/.exec(stderr);
+  return match?.[1];
+}
+
+/**
+ * Looks up the macOS Keychain entry Claude Code is using for one identity's configuration directory, via `security find-generic-password`, run through the injected `RunPort` so no test ever shells out for real.
+ *
+ * This is real OS state: the exact account/service naming Claude Code uses in the Keychain is empirically observed (per this project's README), not a documented contract, so genuinely exercising this against a real Keychain is a manual/integration check on a macOS runner, never something a unit test fakes convincingly — a unit test here can only prove that this function parses `security`'s own output shape correctly, not that the shape matches what a real installation produces.
+ */
+export function lookupKeychainService(run: RunPort, farmRoot: string): KeychainLookupResult {
+  const result = run.run("security", ["find-generic-password", "-a", farmRoot, "-g"]);
+  if (result.status !== 0) {
+    return {
+      checked: true,
+      found: false,
+      note: `No Keychain entry found for account "${farmRoot}" (security exited ${result.status ?? "with no status"}).`,
+    };
+  }
+  const serviceName = parseKeychainServiceName(result.stderr);
+  return {
+    checked: true,
+    found: true,
+    ...(serviceName === undefined ? {} : { serviceName }),
+    note:
+      serviceName === undefined
+        ? `A Keychain entry was found for account "${farmRoot}" but its service name could not be parsed from ` +
+          "security's output."
+        : `Keychain service name for this identity: "${serviceName}".`,
+  };
+}
+
+/** The loose shape of `settings.json`/`settings.local.json` this diagnostic actually reads. Deliberately not a full schema for the file — nothing else in this project needs to validate the rest of it, and being loose here means an unrelated field never breaks this one advisory. */
+const SettingsSecretsShapeSchema = z.looseObject({
+  env: z.record(z.string(), z.unknown()).optional(),
+  hooks: z.record(z.string(), z.array(z.unknown())).optional(),
+});
+
+/** Counts the `hooks` command entries nested inside one hook-group object, without ever reading a command's own value. */
+function hookCommandCountOf(group: unknown): number {
+  if (typeof group !== "object" || group === null) {
+    return 0;
+  }
+  if (!("hooks" in group)) {
+    return 0;
+  }
+  return Array.isArray(group.hooks) ? group.hooks.length : 0;
+}
+
+function countHookCommands(hooks: Readonly<Record<string, readonly unknown[]>> | undefined): number {
+  if (hooks === undefined) {
+    return 0;
+  }
+  let total = 0;
+  for (const groups of Object.values(hooks)) {
+    for (const group of groups) {
+      total += hookCommandCountOf(group);
+    }
+  }
+  return total;
+}
+
+/** One file's reported settings exposure: names and counts only, never the underlying values. */
+export interface SettingsExposureReport {
+  readonly file: string;
+  readonly envKeyNames: readonly string[];
+  readonly hookEventNames: readonly string[];
+  readonly hookCommandCount: number;
+}
+
+/** Inputs to `inspectSettingsExposure`. */
+export interface InspectSettingsExposureParams {
+  /** Whether the `settings` category resolves shared for this launch — the advisory only has anything to report when it does. */
+  readonly settingsShared: boolean;
+  /** Raw file contents keyed by filename (`settings.json`, `settings.local.json`), undefined when the file does not exist. */
+  readonly files: Readonly<Record<string, string | undefined>>;
+}
+
+/**
+ * Reports how many `env` keys and `hooks` commands `settings.json`/`settings.local.json` would share, by name and count only — never a value, per the README's own warning that a hook command or an `env` entry there can easily hold a real secret with nothing in Claude Code's own documentation warning against it.
+ *
+ * Returns nothing at all when `settingsShared` is false, and nothing for a file whose `env`/`hooks` fields are both empty or absent — the whole point of this advisory is to be silent unless there is something worth a second look.
+ */
+export function inspectSettingsExposure(params: InspectSettingsExposureParams): SettingsExposureReport[] {
+  if (!params.settingsShared) {
+    return [];
+  }
+  const reports: SettingsExposureReport[] = [];
+  for (const [file, raw] of Object.entries(params.files)) {
+    if (raw === undefined) {
+      continue;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    const result = SettingsSecretsShapeSchema.safeParse(parsed);
+    if (!result.success) {
+      continue;
+    }
+    const envKeyNames = Object.keys(result.data.env ?? {});
+    const hookEventNames = Object.keys(result.data.hooks ?? {});
+    const hookCommandCount = countHookCommands(result.data.hooks);
+    if (envKeyNames.length === 0 && hookCommandCount === 0) {
+      continue;
+    }
+    reports.push({ file, envKeyNames, hookEventNames, hookCommandCount });
+  }
+  return reports;
+}
+
+/** Inputs to `runCheck` — everything already loaded/injected, exactly like the resolver core and the launcher: nothing in this function touches a real filesystem, git repository, clock, or environment itself. */
+export interface RunCheckParams {
+  readonly cwd: string;
+  readonly home: string;
+  readonly claudeHome: string;
+  readonly env: Readonly<Record<string, string | undefined>>;
+  readonly branch?: string;
+  readonly branchDetached?: boolean;
+  readonly nowMs: number;
+  /** Used only to build the fact manifest by reading the canonical `~/.claude` tree — `runCheck` never mutates the farm and never spawns anything. */
+  readonly farmFs: FarmFs;
+  readonly cascade: CascadeInput;
+  readonly classification: { readonly defaults: CategoryClassification; readonly overlay?: CategoryClassificationOverlay };
+  readonly identityName?: string;
+  readonly identitySource: IdentityDecisionSource;
+  readonly configProfileName?: string;
+  readonly configProfileSource: ConfigProfileDecisionSource;
+  /** The resolved identity's own `identity.json`, when one was found. */
+  readonly identity?: Identity;
+  /** Raw `settings.json`/`settings.local.json` contents, keyed by filename, undefined when a file does not exist. */
+  readonly settingsFiles: Readonly<Record<string, string | undefined>>;
+  /** Runs `security find-generic-password` for the Keychain diagnostic. Omit to skip that diagnostic entirely (e.g. off macOS, or when no identity/farm root is known). */
+  readonly run?: RunPort;
+  /** The identity's own farm root — `security`'s lookup account. Required alongside `run` for the Keychain diagnostic to run at all. */
+  readonly farmRoot?: string;
+  /** `process.platform` in real use; the Keychain diagnostic only ever runs when this is `"darwin"`. */
+  readonly platform: string;
+}
+
+/** Everything `claude-use check` reports about one directory/identity, without touching the farm or spawning anything. */
+export interface CheckReport {
+  readonly identityName?: string;
+  readonly identitySource: IdentityDecisionSource;
+  readonly configProfileName?: string;
+  readonly configProfileSource: ConfigProfileDecisionSource;
+  readonly resolved: ResolvedState;
+  readonly decisionLines: readonly string[];
+  readonly projectEncodingAmbiguities: readonly EncodingAmbiguity[];
+  readonly ambientCredential: AmbientCredentialGuardResult;
+  readonly keychain?: KeychainLookupResult;
+  readonly settingsExposure: readonly SettingsExposureReport[];
+}
+
+/**
+ * Resolves the full cascade for one directory/identity and reports everything `claude-use check` documents: every entry's resolved state and which layer/condition decided it, any ambiguous `history/projects/` encoding in scope, and the three always-on diagnostics (ambient-credential exposure, macOS Keychain service name, settings-secrets exposure).
+ *
+ * Deliberately reuses the same cascade machinery a real launch uses — `resolveDecisions` and `buildEntryFacts` — rather than reimplementing any part of resolution. The one thing this function never does that a launch does is touch the farm or spawn anything: it only reads the canonical `~/.claude` tree to build the fact manifest resolution needs, and every other input (cascade, classification, settings file contents, the Keychain lookup) is handed in already loaded.
+ */
+export function runCheck(params: RunCheckParams): CheckReport {
+  const facts = buildEntryFacts({
+    fs: params.farmFs,
+    claudeHome: params.claudeHome,
+    home: params.home,
+    cwd: params.cwd,
+    nowMs: params.nowMs,
+    env: params.env,
+    ...(params.branch === undefined ? {} : { branch: params.branch }),
+    ...(params.branchDetached === undefined ? {} : { branchDetached: params.branchDetached }),
+  });
+
+  const resolved = resolveDecisions({ facts, cascade: params.cascade, classification: params.classification });
+
+  const decisionLines = [...resolved.decisions.values()]
+    .slice()
+    .sort((a, b) => (a.relPath < b.relPath ? -1 : a.relPath > b.relPath ? 1 : 0))
+    .map(formatDecision);
+
+  const projectEncodingAmbiguities = flagAmbiguousEncodings(resolved.flattened, facts);
+
+  const ambientCredential = evaluateAmbientCredentialGuard({
+    env: params.env,
+    allowAmbientCredential: params.identity?.allowAmbientCredential ?? false,
+    allowAmbientCredentialOverride: params.env.CLAUDE_USE_ALLOW_AMBIENT_CREDENTIAL === "1",
+    ...(params.identityName === undefined ? {} : { identityName: params.identityName }),
+  });
+
+  const settingsShared = resolved.flattened.categories.get("settings") ?? SHIPPED_CATEGORY_DEFAULTS.settings;
+  const settingsExposure = inspectSettingsExposure({ settingsShared, files: params.settingsFiles });
+
+  const keychain =
+    params.platform === "darwin" && params.run !== undefined && params.farmRoot !== undefined
+      ? lookupKeychainService(params.run, params.farmRoot)
+      : undefined;
+
+  return {
+    ...(params.identityName === undefined ? {} : { identityName: params.identityName }),
+    identitySource: params.identitySource,
+    ...(params.configProfileName === undefined ? {} : { configProfileName: params.configProfileName }),
+    configProfileSource: params.configProfileSource,
+    resolved,
+    decisionLines,
+    projectEncodingAmbiguities,
+    ambientCredential,
+    ...(keychain === undefined ? {} : { keychain }),
+    settingsExposure,
+  };
+}
+
+/** Renders a full `CheckReport` as plain text lines, in the order `claude-use check` prints them. */
+export function formatCheckReport(report: CheckReport): string[] {
+  const lines: string[] = [];
+  lines.push(`Identity: ${report.identityName ?? "(none)"} (${report.identitySource})`);
+  lines.push(`Configuration profile: ${report.configProfileName ?? "(none)"} (${report.configProfileSource})`);
+
+  lines.push("", "Layers (shallowest/earliest first):");
+  for (const layer of report.resolved.assembled.layers) {
+    lines.push(`  [${layer.id}] ${layer.kind}: ${layer.source}`);
+  }
+
+  lines.push("", "Resolved entries:");
+  if (report.decisionLines.length === 0) {
+    lines.push("  (nothing under ~/.claude to report)");
+  }
+  for (const line of report.decisionLines) {
+    lines.push(`  ${line}`);
+  }
+
+  if (report.projectEncodingAmbiguities.length > 0) {
+    lines.push("", "Ambiguous history/projects/ encodings:");
+    for (const ambiguity of report.projectEncodingAmbiguities) {
+      lines.push(`  "${ambiguity.fragment}" -> "${ambiguity.encoded}" (${ambiguity.reason}): ${ambiguity.detail}`);
+    }
+  }
+
+  if (report.resolved.diagnostics.length > 0) {
+    lines.push("", "Diagnostics:");
+    for (const diagnostic of report.resolved.diagnostics) {
+      lines.push(`  [${diagnostic.severity}] ${diagnostic.code}: ${diagnostic.message}`);
+    }
+  }
+
+  lines.push("", "Ambient-credential exposure:");
+  lines.push(
+    report.ambientCredential.ok
+      ? `  OK — none of ${AMBIENT_CREDENTIAL_VARS.join(", ")} is set to a non-empty value.`
+      : report.ambientCredential.message
+          .split("\n")
+          .map((line) => `  ${line}`)
+          .join("\n"),
+  );
+
+  if (report.keychain !== undefined) {
+    lines.push("", "macOS Keychain:");
+    lines.push(`  ${report.keychain.note}`);
+  }
+
+  if (report.settingsExposure.length > 0) {
+    lines.push("", "Settings exposure (names and counts only, never values):");
+    for (const exposure of report.settingsExposure) {
+      lines.push(
+        `  ${exposure.file}: ${exposure.envKeyNames.length} env key(s) [${exposure.envKeyNames.join(", ")}], ` +
+          `${exposure.hookEventNames.length} hook event(s) [${exposure.hookEventNames.join(", ")}], ` +
+          `${exposure.hookCommandCount} hook command(s)`,
+      );
+    }
+  }
+
+  return lines;
+}
+
+/**
+ * Registers `claude-use check [path] [--identity <name>]` onto `program`.
+ *
+ * This is the one place in `src/check.ts` that performs real I/O: it wires the real filesystem, clock, git, and `security` ports, resolves the identity/config-profile/cascade for the given path exactly as a real launch would, and hands everything already-loaded to `runCheck`. `runCheck` itself never reads a file, spawns a process, or touches the farm — this wiring function is what makes that possible, mirroring the same split `src/launcher.ts`/`src/cli.ts` already use between pure orchestration and real ports.
+ */
+export function registerCheckCommand(program: Command, paths: LayoutPaths): void {
+  program
+    .command("check [path]")
+    .description("Show the resolved cascade for a directory/identity, plus always-on diagnostics. Never touches the farm or spawns claude.")
+    .option("--identity <name>", "Identity to check (defaults to the identity a real launch would resolve).")
+    .action((pathArg: string | undefined, options: { identity?: string }) => {
+      const cwd = pathArg === undefined ? process.cwd() : path.resolve(pathArg);
+      const home = os.homedir();
+      const claudeHome = resolveClaudeHome();
+      const read = cosmiconfigReader();
+
+      const overlay = readJson(paths.categoriesLocalFile, CategoryClassificationOverlaySchema);
+      const classification = {
+        defaults: CategoryClassificationSchema.parse(categoriesDefaultJson),
+        ...(overlay === undefined ? {} : { overlay }),
+      };
+
+      const loaded = loadCascadeInput({ paths, home, cwd, read });
+      const selections = readDirectorySelections(loaded);
+      const git = resolveGitBranch(realRunPort, cwd);
+
+      const identityDecision = decideIdentity({
+        env: process.env,
+        argv0Identity: options.identity,
+        directoryPinnedIdentity: selections.identity,
+        readActiveIdentityFile: () => {
+          const raw = realFsPort.readFileUtf8(paths.activeIdentityFile);
+          if (raw === undefined) {
+            return undefined;
+          }
+          const trimmed = raw.trim();
+          return trimmed === "" ? undefined : trimmed;
+        },
+      });
+
+      const loadedIdentity =
+        identityDecision.name === undefined ? undefined : loadIdentity(paths.identitiesDir, identityDecision.name, realFsPort);
+
+      const configProfileDecision = decideConfigProfile({
+        env: process.env,
+        directoryRuleConfigProfile: selections.configProfile,
+        identityDefaultConfigProfile: loadedIdentity?.config.defaultConfigProfile,
+        globalDefaultConfigProfile: loaded.globalConfig?.defaultConfigProfile,
+      });
+
+      const cascade = loadCascadeInput({
+        paths,
+        home,
+        cwd,
+        read,
+        ...(configProfileDecision.name === undefined ? {} : { baseConfigProfile: configProfileDecision.name }),
+      }).input;
+
+      const farmRoot = identityDecision.name === undefined ? undefined : path.join(paths.identitiesDir, identityDecision.name);
+      const settingsFiles = {
+        "settings.json": realFsPort.readFileUtf8(path.join(claudeHome, "settings.json")),
+        "settings.local.json": realFsPort.readFileUtf8(path.join(claudeHome, "settings.local.json")),
+      };
+
+      const report = runCheck({
+        cwd,
+        home,
+        claudeHome,
+        env: process.env,
+        ...(git.branch === undefined ? {} : { branch: git.branch }),
+        ...(git.branchDetached === undefined ? {} : { branchDetached: git.branchDetached }),
+        nowMs: Date.now(),
+        farmFs: realFarmFs,
+        cascade,
+        classification,
+        ...(identityDecision.name === undefined ? {} : { identityName: identityDecision.name }),
+        identitySource: identityDecision.source,
+        ...(configProfileDecision.name === undefined ? {} : { configProfileName: configProfileDecision.name }),
+        configProfileSource: configProfileDecision.source,
+        ...(loadedIdentity === undefined ? {} : { identity: loadedIdentity.config }),
+        settingsFiles,
+        run: realRunPort,
+        ...(farmRoot === undefined ? {} : { farmRoot }),
+        platform: process.platform,
+      });
+
+      for (const line of formatCheckReport(report)) {
+        console.log(line);
+      }
+    });
+}

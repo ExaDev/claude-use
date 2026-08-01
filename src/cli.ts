@@ -7,6 +7,7 @@ import categoriesDefaultJson from "./config/categories.default.json";
 import { cosmiconfigReader } from "./config/load";
 import { CategoryClassificationOverlaySchema, CategoryClassificationSchema } from "./config/schema";
 import { readJson } from "./config/store";
+import { registerCheckCommand } from "./check";
 import { registerIdentityCommand } from "./identityManager";
 import { registerProfileCommand } from "./configProfiles";
 import { registerRulesCommand } from "./directoryRules";
@@ -41,6 +42,7 @@ function buildClaudeUseProgram(): Command {
   registerIdentityCommand(program, paths);
   registerProfileCommand(program, paths);
   registerRulesCommand(program, paths);
+  registerCheckCommand(program, paths);
 
   return program;
 }
