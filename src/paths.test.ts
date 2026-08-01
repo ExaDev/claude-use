@@ -12,6 +12,7 @@ function layoutPathValues(layout: LayoutPaths): readonly string[] {
     layout.activeIdentityFile,
     layout.globalConfigFile,
     layout.categoriesLocalFile,
+    layout.claudeShimFile,
   ];
 }
 
@@ -54,6 +55,10 @@ describe("buildLayoutPaths", () => {
 
   it("names the categories.local.json file", () => {
     expect(layout.categoriesLocalFile).toBe(path.join(root, "categories.local.json"));
+  });
+
+  it("names the claude-shim.json file", () => {
+    expect(layout.claudeShimFile).toBe(path.join(root, "claude-shim.json"));
   });
 });
 

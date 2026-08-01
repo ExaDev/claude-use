@@ -21,6 +21,8 @@ export interface LayoutPaths {
   readonly globalConfigFile: string;
   /** Path to the categories.local.json overlay recording answers to "unclassified entry" prompts. */
   readonly categoriesLocalFile: string;
+  /** Path to the claude-shim.json marker recording where `claude-use shim enable` last placed a `claude`-named copy of this executable, and how. */
+  readonly claudeShimFile: string;
 }
 
 /**
@@ -57,6 +59,7 @@ export function buildLayoutPaths(root: string): LayoutPaths {
     activeIdentityFile: path.join(root, "active-identity"),
     globalConfigFile: path.join(root, "config.json"),
     categoriesLocalFile: path.join(root, "categories.local.json"),
+    claudeShimFile: path.join(root, "claude-shim.json"),
   };
 }
 
