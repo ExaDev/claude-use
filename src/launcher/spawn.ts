@@ -20,7 +20,7 @@ function exitCodeFor(result: SpawnResult): number {
     return result.status;
   }
   if (result.signal !== null) {
-    const signalNumber = os.constants.signals[result.signal] as number | undefined;
+    const signalNumber = os.constants.signals[result.signal];
     return signalNumber === undefined ? 1 : 128 + signalNumber;
   }
   return 1;

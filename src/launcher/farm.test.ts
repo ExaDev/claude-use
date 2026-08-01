@@ -1,7 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { createFakeFarmFs, FAKE_CLAUDE_HOME, FAKE_HOME, FAKE_NOW_MS, shippedClassification, type FakeFarmFs } from "../test-helpers";
+import { createFakeFarmFs, fakeSleep, FAKE_CLAUDE_HOME, FAKE_HOME, FAKE_NOW_MS, shippedClassification, type FakeFarmFs } from "../test-helpers";
 import type { CascadeInput } from "../resolve";
 import { FARM_MANIFEST_FILENAME, readFarmManifest, resyncFarm, type ResyncFarmParams } from "./farm";
 import { IdentityLockBusyError, identityLockPath } from "./lock";
@@ -40,7 +40,7 @@ function params(fs: FakeFarmFs, overrides: Partial<ResyncFarmParams> = {}): Resy
     classification: { defaults: shippedClassification },
     now: () => FAKE_NOW_MS,
     uniqueSuffix: "test",
-    lock: { pid: 42, isProcessAlive: () => true, sleep: () => {} },
+    lock: { pid: 42, isProcessAlive: () => true, sleep: fakeSleep().sleep },
     ...overrides,
   };
 }
@@ -260,7 +260,7 @@ describe("resyncFarm", () => {
         params(fs, {
           uniqueSuffix: "blocked",
           cascade: cascade({ categories: { history: true } }),
-          lock: { pid: 42, isProcessAlive: () => true, sleep: () => {}, maxAttempts: 2 },
+          lock: { pid: 42, isProcessAlive: () => true, sleep: fakeSleep().sleep, maxAttempts: 2 },
         }),
       ),
     ).toThrow(IdentityLockBusyError);

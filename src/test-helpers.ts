@@ -27,6 +27,12 @@ export const FAKE_NOW_MS = Date.UTC(2026, 0, 15, 12, 0, 0);
 /** Milliseconds in one day, for writing readable relative mtimes in fixtures. */
 export const DAY_MS = 86_400_000;
 
+/** A fake `sleep(ms)` for lock/retry tests: never actually sleeps, but records every requested delay so a test can assert on backoff behaviour instead of being a bare no-op. */
+export function fakeSleep(): { readonly sleep: (ms: number) => void; readonly delays: number[] } {
+  const delays: number[] = [];
+  return { sleep: (ms: number) => delays.push(ms), delays };
+}
+
 function parentOf(rel: string): string {
   const index = rel.lastIndexOf("/");
   return index === -1 ? "" : rel.slice(0, index);

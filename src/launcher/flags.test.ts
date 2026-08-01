@@ -98,7 +98,7 @@ describe("buildEnv", () => {
       resolvedIdentityName: "work",
       identitiesDir: "/home/testuser/.claude-use/identities",
     });
-    expect(env["CLAUDE_CONFIG_DIR"]).toBe("/somewhere/else");
+    expect(env.CLAUDE_CONFIG_DIR).toBe("/somewhere/else");
   });
 
   it("leaves the environment unchanged when no identity was resolved at all", () => {
@@ -108,7 +108,7 @@ describe("buildEnv", () => {
       identitiesDir: "/home/testuser/.claude-use/identities",
     });
     expect(env).toEqual(baseEnv);
-    expect(env["CLAUDE_CONFIG_DIR"]).toBeUndefined();
+    expect(env.CLAUDE_CONFIG_DIR).toBeUndefined();
   });
 
   it("sets CLAUDE_CONFIG_DIR to the resolved identity's own directory otherwise", () => {
@@ -118,8 +118,8 @@ describe("buildEnv", () => {
       resolvedIdentityName: "work",
       identitiesDir: "/home/testuser/.claude-use/identities",
     });
-    expect(env["CLAUDE_CONFIG_DIR"]).toBe("/home/testuser/.claude-use/identities/work");
-    expect(env["PATH"]).toBe("/usr/bin");
+    expect(env.CLAUDE_CONFIG_DIR).toBe("/home/testuser/.claude-use/identities/work");
+    expect(env.PATH).toBe("/usr/bin");
   });
 
   it("never strips CLAUDE_EXTRA_FLAGS from the child environment", () => {
@@ -129,6 +129,6 @@ describe("buildEnv", () => {
       resolvedIdentityName: "work",
       identitiesDir: "/home/testuser/.claude-use/identities",
     });
-    expect(env["CLAUDE_EXTRA_FLAGS"]).toBe("--continue continue");
+    expect(env.CLAUDE_EXTRA_FLAGS).toBe("--continue continue");
   });
 });

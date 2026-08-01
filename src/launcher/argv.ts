@@ -46,7 +46,7 @@ export function parseLauncherArgv(argv: readonly string[]): ParsedLauncherArgv {
   const rest: string[] = [];
 
   for (let index = 0; index < remaining.length; index += 1) {
-    const token = remaining[index] as string;
+    const token = remaining[index]!;
     const matched = matchValuedFlag(token);
     if (matched === undefined) {
       rest.push(token);
@@ -79,7 +79,7 @@ export function parseLauncherArgv(argv: readonly string[]): ParsedLauncherArgv {
   }
 
   return {
-    ...(hasIdentity ? { identity: (first as string).slice(1) } : {}),
+    ...(hasIdentity ? { identity: first.slice(1) } : {}),
     ...(configProfile === undefined ? {} : { configProfile }),
     categoryFlags,
     shareFlags,

@@ -583,7 +583,7 @@ function sameLinks(a: FarmManifest["links"], b: FarmManifest["links"]): boolean 
   }
   return a.every((link, index) => {
     const other = b[index];
-    return other !== undefined && other.rel === link.rel && other.target === link.target;
+    return other?.rel === link.rel && other?.target === link.target;
   });
 }
 

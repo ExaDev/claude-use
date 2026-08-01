@@ -8,7 +8,7 @@ import { loadCascadeInput, readDirectorySelections } from "./cascade";
 const paths = buildLayoutPaths(`${FAKE_HOME}/.claude-use`);
 
 function fakeReader(files: Readonly<Record<string, unknown>>) {
-  return (filepath: string): unknown | undefined => files[filepath];
+  return (filepath: string): unknown => files[filepath];
 }
 
 describe("loadCascadeInput", () => {

@@ -1,11 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, type Mock } from "vitest";
 
 import { runLauncher, type FarmRuntime, type RunLauncherParams } from "./launcher";
 import { identityLockPath } from "./launcher/lock";
 import type { FsPort, LogPort, ProcPort, SpawnPort, SpawnResult } from "./launcher/ports";
 import { buildLayoutPaths } from "./paths";
 import type { CascadeInput } from "./resolve";
-import { createFakeFarmFs, FAKE_CLAUDE_HOME, FAKE_HOME, FAKE_NOW_MS, shippedClassification, type FakeFarmFs } from "./test-helpers";
+import { createFakeFarmFs, fakeSleep, FAKE_CLAUDE_HOME, FAKE_HOME, FAKE_NOW_MS, shippedClassification, type FakeFarmFs } from "./test-helpers";
 import type { DiscoveredClaudeBinary } from "./versionDiscovery";
 
 class ExitCalled extends Error {
@@ -26,7 +26,7 @@ function fakeProc(env: Record<string, string | undefined>, argv: string[]): Proc
   };
 }
 
-function fakeFs(files: Record<string, unknown | string>): FsPort {
+function fakeFs(files: Record<string, unknown>): FsPort {
   return {
     readFileUtf8: (filePath) => {
       const value = files[filePath];
@@ -53,8 +53,8 @@ function fakeLog(): LogPort & { infos: string[]; warns: string[]; errors: string
   };
 }
 
-function fakeSpawn(result: SpawnResult = { status: 0, signal: null }): SpawnPort & { spawnSync: ReturnType<typeof vi.fn> } {
-  return { spawnSync: vi.fn().mockReturnValue(result) };
+function fakeSpawn(result: SpawnResult = { status: 0, signal: null }): SpawnPort & { spawnSync: Mock<SpawnPort["spawnSync"]> } {
+  return { spawnSync: vi.fn<SpawnPort["spawnSync"]>().mockReturnValue(result) };
 }
 
 const discovered: DiscoveredClaudeBinary = { path: "/home/testuser/.local/share/claude/versions/2.1.0", source: "versions-dir", version: "2.1.0" };
@@ -256,11 +256,15 @@ describe("runLauncher", () => {
       resolveClaudeBinary: () => discovered,
     });
 
-    expect(spawn.spawnSync).toHaveBeenCalledWith(
-      discovered.path,
-      ["--dangerously-skip-permissions", "--remote-control=", "--continue", "continue", "--verbose"],
-      { stdio: "inherit", env: expect.objectContaining({ CLAUDE_EXTRA_FLAGS: "--continue continue" }) },
-    );
+    const call = vi.mocked(spawn.spawnSync).mock.calls[0];
+    if (call === undefined) {
+      throw new Error("expected spawnSync to have been called");
+    }
+    const [command, args, options] = call;
+    expect(command).toBe(discovered.path);
+    expect(args).toEqual(["--dangerously-skip-permissions", "--remote-control=", "--continue", "continue", "--verbose"]);
+    expect(options.stdio).toBe("inherit");
+    expect(options.env).toMatchObject({ CLAUDE_EXTRA_FLAGS: "--continue continue" });
   });
 
   it("propagates the real binary's own exit code when spawning succeeds but the child exits non-zero", () => {
@@ -296,7 +300,7 @@ function fakeFarm(fs: FakeFarmFs, cliOverride?: CascadeInput["cliOverride"]): Fa
     }),
     now: () => FAKE_NOW_MS,
     uniqueSuffix: "launcher-test",
-    lock: { pid: 42, isProcessAlive: () => true, sleep: () => {}, maxAttempts: 2 },
+    lock: { pid: 42, isProcessAlive: () => true, sleep: fakeSleep().sleep, maxAttempts: 2 },
   };
 }
 

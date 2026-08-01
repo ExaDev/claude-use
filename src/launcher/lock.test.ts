@@ -86,7 +86,7 @@ describe("acquireIdentityLock", () => {
       nowMs: () => 1_000,
       pid: 4242,
       isProcessAlive: () => true,
-      sleep: () => {},
+      sleep: fakeSleep().sleep,
     });
 
     expect(() =>
@@ -97,7 +97,7 @@ describe("acquireIdentityLock", () => {
         nowMs: () => 1_000,
         pid: 43,
         isProcessAlive: () => true,
-        sleep: () => {},
+        sleep: fakeSleep().sleep,
         maxAttempts: 1,
       }),
     ).toThrow(/pid 4242/);
@@ -112,7 +112,7 @@ describe("acquireIdentityLock", () => {
       nowMs: () => 1_000,
       pid: 42,
       isProcessAlive: () => true,
-      sleep: () => {},
+      sleep: fakeSleep().sleep,
     });
 
     const sleeper = fakeSleep();
@@ -140,7 +140,7 @@ describe("acquireIdentityLock", () => {
       nowMs: () => 1_000,
       pid: 42,
       isProcessAlive: () => true,
-      sleep: () => {},
+      sleep: fakeSleep().sleep,
     });
 
     const stolen = acquireIdentityLock({
@@ -150,7 +150,7 @@ describe("acquireIdentityLock", () => {
       nowMs: () => 1_000 + 200_000,
       pid: 43,
       isProcessAlive: () => true,
-      sleep: () => {},
+      sleep: fakeSleep().sleep,
       maxAttempts: 3,
     });
 
@@ -169,7 +169,7 @@ describe("acquireIdentityLock", () => {
       nowMs: () => 1_000,
       pid: 43,
       isProcessAlive: () => true,
-      sleep: () => {},
+      sleep: fakeSleep().sleep,
       maxAttempts: 3,
     });
 
@@ -185,7 +185,7 @@ describe("acquireIdentityLock", () => {
       nowMs: () => 1_000,
       pid: 42,
       isProcessAlive: () => true,
-      sleep: () => {},
+      sleep: fakeSleep().sleep,
     });
 
     // The holder is presumed dead and its lock is taken by someone else; the original's own release must then be a no-op rather than unlocking the new holder.
@@ -196,7 +196,7 @@ describe("acquireIdentityLock", () => {
       nowMs: () => 1_001,
       pid: 43,
       isProcessAlive: (pid) => pid === 43,
-      sleep: () => {},
+      sleep: fakeSleep().sleep,
     });
     first.release();
 

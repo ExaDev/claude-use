@@ -25,7 +25,7 @@ function toCategoryMap(pairs: Record<string, boolean>): CategoryMap {
     }
     result[key] = value;
   }
-  return result as CategoryMap;
+  return result;
 }
 
 function toEntries(pairs: Record<string, boolean>): Entries {
