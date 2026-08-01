@@ -77,13 +77,14 @@ function buildFarmRuntime(paths: LayoutPaths): {
       ...(git.branch === undefined ? {} : { branch: git.branch }),
       ...(git.branchDetached === undefined ? {} : { branchDetached: git.branchDetached }),
       classification,
-      loadCascade: (baseConfigProfile) =>
+      loadCascade: (baseConfigProfile, cliOverride) =>
         loadCascadeInput({
           paths,
           home,
           cwd,
           read,
           ...(baseConfigProfile === undefined ? {} : { baseConfigProfile }),
+          ...(cliOverride === undefined ? {} : { cliOverride }),
         }).input,
       now: () => Date.now(),
       uniqueSuffix: `${process.pid}.${randomUUID()}`,

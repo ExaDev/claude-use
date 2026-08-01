@@ -326,6 +326,64 @@ describe("runLauncher farm resync", () => {
     });
   });
 
+  it("threads --category/--share/--hide argv flags and --config-profile into the farm's loadCascade call", () => {
+    const fs = createFakeFarmFs({});
+    const loadCascade = vi.fn((baseConfigProfile: string | undefined) => ({
+      home: FAKE_HOME,
+      loadProfile: () => undefined,
+      levels: [],
+      ...(baseConfigProfile === undefined ? {} : { baseConfigProfile }),
+    }));
+    const farm: FarmRuntime = { ...fakeFarm(fs), loadCascade };
+
+    runAndCaptureExit({
+      paths,
+      fs: fakeFs({}),
+      spawn: fakeSpawn(),
+      proc: fakeProc(
+        {},
+        ["@work", "--config-profile", "strict", "--category", "history=true,knowledge=false", "--share", "knowledge/skills/commit", "--hide", "history/projects/x"],
+      ),
+      log: fakeLog(),
+      resolveClaudeBinary: () => discovered,
+      farm,
+    });
+
+    expect(loadCascade).toHaveBeenCalledWith("strict", {
+      categories: { history: true, knowledge: false },
+      entries: { "knowledge/skills/commit": true, "history/projects/x": false },
+    });
+  });
+
+  it("merges CLAUDE_USE_CATEGORY_OVERRIDE/CLAUDE_USE_ENTRY_OVERRIDE env vars with any --category/--share/--hide flags, flags winning", () => {
+    const fs = createFakeFarmFs({});
+    const loadCascade = vi.fn((baseConfigProfile: string | undefined) => ({
+      home: FAKE_HOME,
+      loadProfile: () => undefined,
+      levels: [],
+      ...(baseConfigProfile === undefined ? {} : { baseConfigProfile }),
+    }));
+    const farm: FarmRuntime = { ...fakeFarm(fs), loadCascade };
+
+    runAndCaptureExit({
+      paths,
+      fs: fakeFs({}),
+      spawn: fakeSpawn(),
+      proc: fakeProc(
+        { CLAUDE_USE_CATEGORY_OVERRIDE: "history=false", CLAUDE_USE_ENTRY_OVERRIDE: "knowledge/skills/commit=false" },
+        ["@work", "--category", "history=true"],
+      ),
+      log: fakeLog(),
+      resolveClaudeBinary: () => discovered,
+      farm,
+    });
+
+    expect(loadCascade).toHaveBeenCalledWith(undefined, {
+      categories: { history: true },
+      entries: { "knowledge/skills/commit": false },
+    });
+  });
+
   it("does not touch any farm when the CLAUDE_CONFIG_DIR escape hatch applies", () => {
     const fs = createFakeFarmFs({ [`${FAKE_CLAUDE_HOME}/skills/commit/SKILL.md`]: "commit" });
     const spawn = fakeSpawn();

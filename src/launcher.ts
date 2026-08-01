@@ -1,5 +1,6 @@
 import type { LayoutPaths } from "./paths";
 import { parseLauncherArgv } from "./launcher/argv";
+import { buildCliOverride, type CliOverride } from "./launcher/cliOverride";
 import { recoverFarm, recoveryDiagnostics, resyncFarm } from "./launcher/farm";
 import { evaluateAmbientCredentialGuard } from "./launcher/guard";
 import { decideConfigProfile, decideIdentity, loadIdentity } from "./launcher/identity";
@@ -27,8 +28,8 @@ export interface FarmRuntime {
   readonly branch?: string;
   readonly branchDetached?: boolean;
   readonly classification: { readonly defaults: CategoryClassification; readonly overlay?: CategoryClassificationOverlay };
-  /** Loads and assembles the cascade for `cwd` under the given configuration profile. Injected so the launcher never reads a config file itself. */
-  readonly loadCascade: (baseConfigProfile: string | undefined) => CascadeInput;
+  /** Loads and assembles the cascade for `cwd` under the given configuration profile and one-off command-line/environment overrides. Injected so the launcher never reads a config file itself. */
+  readonly loadCascade: (baseConfigProfile: string | undefined, cliOverride: CliOverride | undefined) => CascadeInput;
   readonly now: () => number;
   /** Distinguishes this process's scratch and superseded farm directories from any other's. */
   readonly uniqueSuffix: string;
@@ -55,7 +56,7 @@ export interface RunLauncherParams {
   readonly directoryPinnedIdentity?: string;
   /** A directory rule's `configProfile` selection for `$PWD`. Accepted as an already-resolved value for the same reason. */
   readonly directoryRuleConfigProfile?: string;
-  /** An explicit `--config-profile` CLI flag, when the caller's own argument parsing found one. */
+  /** An explicit `--config-profile` value, when the caller wants to force one regardless of argv — normal operation instead relies on `parseLauncherArgv` finding `--config-profile` in `proc.argv` itself, so this is only needed to override that. */
   readonly cliFlagConfigProfile?: string;
   /** The user-global `~/.claude-use/config.json` default configuration profile, when one is configured. */
   readonly globalDefaultConfigProfile?: string;
@@ -75,6 +76,12 @@ export function runLauncher(params: RunLauncherParams): void {
   const { env, argv } = proc;
 
   const parsedArgv = parseLauncherArgv(argv);
+  const cliOverride = buildCliOverride({
+    env,
+    categoryFlags: parsedArgv.categoryFlags,
+    shareFlags: parsedArgv.shareFlags,
+    hideFlags: parsedArgv.hideFlags,
+  });
   const configDirEscapeHatchApplies = env.CLAUDE_CONFIG_DIR !== undefined && env.CLAUDE_CONFIG_DIR !== "";
 
   const identityDecision = decideIdentity({
@@ -143,7 +150,7 @@ export function runLauncher(params: RunLauncherParams): void {
 
   const configProfileDecision = decideConfigProfile({
     env,
-    cliFlagConfigProfile: params.cliFlagConfigProfile,
+    cliFlagConfigProfile: params.cliFlagConfigProfile ?? parsedArgv.configProfile,
     directoryRuleConfigProfile: params.directoryRuleConfigProfile,
     identityDefaultConfigProfile: loadedIdentity?.config.defaultConfigProfile,
     globalDefaultConfigProfile: params.globalDefaultConfigProfile,
@@ -170,7 +177,7 @@ export function runLauncher(params: RunLauncherParams): void {
         env,
         ...(farm.branch === undefined ? {} : { branch: farm.branch }),
         ...(farm.branchDetached === undefined ? {} : { branchDetached: farm.branchDetached }),
-        cascade: farm.loadCascade(configProfileDecision.name),
+        cascade: farm.loadCascade(configProfileDecision.name, cliOverride),
         classification: farm.classification,
         now: farm.now,
         uniqueSuffix: farm.uniqueSuffix,
