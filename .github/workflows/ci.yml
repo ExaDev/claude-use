@@ -553,3 +553,33 @@ jobs:
             Write-Host "version mismatch: installed=$installed expected=$expected"
             exit 1
           }
+
+  # Confirms `npx claude-use` genuinely works post-publish, on all three platforms — unlike the Homebrew/Scoop verify jobs above, this one channel is meant to work everywhere, so it gets a matrix rather than one job per OS. GitHub-hosted Windows runners ship Git Bash, so `shell: bash` here needs no PowerShell-specific branching.
+  verify-npm:
+    name: Verify npm install (${{ matrix.os }})
+    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
+    needs: [release, publish-npm]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Run via npx and check version
+        shell: bash
+        run: |
+          expected="${GITHUB_REF_NAME#v}"
+          # The registry can take a few moments to serve a version right after `npm publish` returns success, so retry rather than trusting the first attempt.
+          installed=""
+          for i in $(seq 1 10); do
+            if installed=$(npx --yes "claude-use@${expected}" --version 2>/dev/null); then
+              break
+            fi
+            echo "npm registry not ready yet, retrying in 10s... ($i/10)"
+            sleep 10
+          done
+          echo "$installed"
+          if [ "$installed" != "$expected" ]; then
+            echo "version mismatch: installed=$installed expected=$expected"
+            exit 1
+          fi
