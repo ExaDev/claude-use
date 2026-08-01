@@ -171,7 +171,6 @@ export function assembleCascade(input: CascadeInput): AssembledCascade {
       ...(input.cliOverride.entryOrder === undefined ? {} : { entryOrder: input.cliOverride.entryOrder }),
       ...(input.cliOverride.launch === undefined ? {} : { launch: input.cliOverride.launch }),
     });
-    nextId += 1;
   }
 
   return {

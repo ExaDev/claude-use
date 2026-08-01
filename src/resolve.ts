@@ -5,7 +5,7 @@
  */
 
 import { classifyEntries, type ClassifyResult } from "./config/classify";
-import type { CategoryClassification, CategoryClassificationOverlay, CategoryName } from "./config/schema";
+import type { CategoryClassification, CategoryClassificationOverlay } from "./config/schema";
 import { resolveAll, type ResolveAllResult } from "./resolve/decide";
 import { flattenLayers } from "./resolve/flatten";
 import { planFarm, type FarmPlan } from "./resolve/plan";
@@ -100,7 +100,7 @@ export function resolveDecisions(input: ResolveDecisionsInput): ResolvedState {
   const resolved = resolveAll({
     flattened,
     facts: input.facts,
-    classification: classification.classification as ReadonlyMap<string, CategoryName | null>,
+    classification: classification.classification,
   });
   const farm = planFarm({ facts: input.facts, decisions: resolved.decisions, flattened });
 

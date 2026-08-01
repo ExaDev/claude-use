@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { DAY_MS, FAKE_NOW_MS, makeFacts } from "../test-helpers";
-import { evaluateWhen, isDuration, matchBranch, parseDuration } from "./conditions";
+import { evaluateWhen, isDuration, matchBranch, parseDuration, type ConditionContext } from "./conditions";
 import type { EntryFact } from "./types";
 
-const baseContext = { nowMs: FAKE_NOW_MS, env: {} as Record<string, string | undefined> };
+const baseContext: ConditionContext = { nowMs: FAKE_NOW_MS, env: {} };
 
 function fact(overrides: Partial<EntryFact>): EntryFact {
   return {

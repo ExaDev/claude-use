@@ -1,4 +1,4 @@
-import { isOverridableCategory, type EntryValue, type LaunchFlags, type OverridableCategory } from "../config/schema";
+import { isOverridableCategory, type EntryValue, type OverridableCategory } from "../config/schema";
 import { isVacuousWhen } from "./conditions";
 import { canonicaliseEntryKey, compareSpecificity, compileMatcher, EntryKeyError, isExactPattern, literalPrefixOf } from "./match";
 import type { CompiledRule, Diagnostic, FlattenedCascade, Layer } from "./types";
@@ -115,7 +115,7 @@ export function flattenLayers(layers: readonly Layer[], options: { home: string 
     }
   }
 
-  return { categories, rules, launch: launch as LaunchFlags, diagnostics };
+  return { categories, rules, launch: launch, diagnostics };
 }
 
 /**
