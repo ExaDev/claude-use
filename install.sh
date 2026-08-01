@@ -1,15 +1,61 @@
 #!/usr/bin/env sh
 set -eu
 
-# Installs the already-built SEA binary as both `claude` and `claude-use` in ~/.local/bin (or $CLAUDE_USE_INSTALL_DIR, if set). One compiled binary backs both names — the entrypoint dispatches on path.basename(process.argv[1]) — so installation just needs two differently-named copies (or hardlinks) of the same executable on PATH. Run `pnpm build` first.
+# Downloads the latest GitHub Release SEA binary for the running platform and installs it as both `claude` and `claude-use` in ~/.local/bin (or $CLAUDE_USE_INSTALL_DIR, if set). One compiled binary backs both names — the entrypoint dispatches on path.basename(process.argv[1]) — so installation just needs two differently-named copies (or hardlinks) of the same executable on PATH.
+#
+# macOS and Linux only: this is a POSIX shell script, and Windows has no `sh` to pipe it into. Windows users get the same two commands via Scoop instead — see the README's Install section.
 
-script_dir=$(cd "$(dirname "$0")" && pwd)
-built_binary="$script_dir/dist/claude-use-sea"
+repo="ExaDev/claude-use"
 
-if [ ! -x "$built_binary" ]; then
-  echo "error: $built_binary not found or not executable. Run 'pnpm build' first." >&2
+os=$(uname -s)
+arch=$(uname -m)
+
+case "$os" in
+  Darwin)
+    case "$arch" in
+      arm64) asset="claude-use-macos-arm64" ;;
+      x86_64) asset="claude-use-macos-x64-unverified" ;;
+      *) echo "error: unsupported macOS architecture '$arch'" >&2; exit 1 ;;
+    esac
+    ;;
+  Linux)
+    case "$arch" in
+      aarch64 | arm64) asset="claude-use-linux-arm64" ;;
+      x86_64) asset="claude-use-linux-x64" ;;
+      *) echo "error: unsupported Linux architecture '$arch'" >&2; exit 1 ;;
+    esac
+    ;;
+  *)
+    echo "error: unsupported platform '$os'. On Windows, use Scoop instead:" >&2
+    echo "  scoop bucket add claude-use https://github.com/ExaDev/scoop-claude-use" >&2
+    echo "  scoop install claude-use" >&2
+    exit 1
+    ;;
+esac
+
+tmp_dir=$(mktemp -d)
+trap 'rm -rf "$tmp_dir"' EXIT
+
+base_url="https://github.com/$repo/releases/latest/download"
+echo "Downloading $asset..."
+curl -fsSL --retry 3 -o "$tmp_dir/$asset" "$base_url/$asset"
+curl -fsSL --retry 3 -o "$tmp_dir/$asset.sha256" "$base_url/$asset.sha256"
+
+expected_sha=$(awk '{print $1}' "$tmp_dir/$asset.sha256")
+if command -v shasum >/dev/null 2>&1; then
+  actual_sha=$(shasum -a 256 "$tmp_dir/$asset" | awk '{print $1}')
+elif command -v sha256sum >/dev/null 2>&1; then
+  actual_sha=$(sha256sum "$tmp_dir/$asset" | awk '{print $1}')
+else
+  echo "error: neither shasum nor sha256sum is available to verify the download" >&2
   exit 1
 fi
+if [ "$actual_sha" != "$expected_sha" ]; then
+  echo "error: checksum mismatch for $asset (expected $expected_sha, got $actual_sha)" >&2
+  exit 1
+fi
+
+chmod +x "$tmp_dir/$asset"
 
 install_dir="${CLAUDE_USE_INSTALL_DIR:-$HOME/.local/bin}"
 mkdir -p "$install_dir"
@@ -17,11 +63,11 @@ mkdir -p "$install_dir"
 for name in claude claude-use; do
   target="$install_dir/$name"
   rm -f "$target"
-  if ln "$built_binary" "$target" 2>/dev/null; then
+  if ln "$tmp_dir/$asset" "$target" 2>/dev/null; then
     :
   else
     # Cross-device or otherwise hardlink-incapable filesystem: fall back to a plain copy.
-    cp "$built_binary" "$target"
+    cp "$tmp_dir/$asset" "$target"
     chmod 755 "$target"
   fi
   echo "installed $target"
