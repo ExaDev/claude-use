@@ -17,7 +17,8 @@ export function readDirectoryRules(paths: LayoutPaths): DirectoryRules {
   return readJson(paths.directoryRulesFile, DirectoryRulesSchema) ?? { rules: [] };
 }
 
-function writeDirectoryRules(paths: LayoutPaths, rules: DirectoryRules): void {
+/** Validates and writes the whole `~/.claude-use/directory-rules.json` file. Exported so `src/configure.ts` can update a single rule's `categories`/`entries` in place without duplicating this validate-then-write step. */
+export function writeDirectoryRules(paths: LayoutPaths, rules: DirectoryRules): void {
   const validated = DirectoryRulesSchema.parse(rules);
   writeJsonAtomic(paths.directoryRulesFile, validated);
 }
