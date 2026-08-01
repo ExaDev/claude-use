@@ -21,6 +21,7 @@ function baseParams(overrides: Partial<RunDoctorParams> = {}): RunDoctorParams {
     categoriesLocal: { path: "/claude-use/categories.local.json", raw: undefined },
     activeIdentity: { path: "/claude-use/active-identity", raw: undefined },
     binaryDiscovery: DISCOVERED_BINARY,
+    claudeShim: { state: undefined, targetExists: false },
     platform: "linux",
     ...overrides,
   };
@@ -83,6 +84,31 @@ describe("runDoctor: binary-discovery", () => {
       { section: "binary-discovery", severity: "fail", message: "no claude binary found anywhere" },
     ]);
     expect(report.ok).toBe(false);
+  });
+});
+
+describe("runDoctor: claude-shim", () => {
+  it("passes when no shim is enabled (the default)", () => {
+    const report = runDoctor(baseParams());
+    const [finding] = findingsFor(report, "claude-shim");
+    expect(finding?.severity).toBe("pass");
+    expect(finding?.message).toContain("shim enable");
+  });
+
+  it("passes when enabled and the target still exists", () => {
+    const state = { targetPath: "/usr/local/bin/claude", method: "hardlink" as const, installedAtMs: 0 };
+    const report = runDoctor(baseParams({ claudeShim: { state, targetExists: true } }));
+    const [finding] = findingsFor(report, "claude-shim");
+    expect(finding?.severity).toBe("pass");
+    expect(finding?.message).toContain("/usr/local/bin/claude");
+  });
+
+  it("warns, not fails, when the marker is stale (target no longer exists)", () => {
+    const state = { targetPath: "/usr/local/bin/claude", method: "copy" as const, installedAtMs: 0 };
+    const report = runDoctor(baseParams({ claudeShim: { state, targetExists: false } }));
+    const [finding] = findingsFor(report, "claude-shim");
+    expect(finding?.severity).toBe("warn");
+    expect(report.ok).toBe(true);
   });
 });
 

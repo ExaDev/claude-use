@@ -10,6 +10,7 @@ import { CategoryClassificationOverlaySchema, CategoryClassificationSchema } fro
 import { readJson } from "./config/store";
 import { registerCheckCommand } from "./check";
 import { registerConfigureCommand } from "./configure";
+import { registerShimCommand, resolveOwnInstallDirs } from "./claudeShim";
 import { registerDoctorCommand } from "./doctor";
 import { registerIdentityCommand } from "./identityManager";
 import { registerProfileCommand } from "./configProfiles";
@@ -35,7 +36,7 @@ import {
  *
  * `claude` runs the launcher (`src/launcher.ts`'s `runLauncher`), wired here with real ports (`src/realPorts.ts`) instead of the fakes every test in this project uses. It resolves the identity, loads and assembles the cascade for the current directory, resyncs that identity's symlink farm to match, and spawns the real `claude` binary with `CLAUDE_CONFIG_DIR` pointed at the farm.
  *
- * `claude-use` runs the Commander tree exposing `identity`/`profile`/`rules`/`check`/`configure`/`doctor` subcommands, each a thin adapter over `src/config/store.ts` and the Zod schemas in `src/config/schema.ts` — plus `run`, which reaches the exact same launcher pipeline as the `claude` binary above, just fed a different argv source, so a `claude`-named file on `PATH` is never required.
+ * `claude-use` runs the Commander tree exposing `identity`/`profile`/`rules`/`check`/`configure`/`doctor`/`shim` subcommands, each a thin adapter over `src/config/store.ts` and the Zod schemas in `src/config/schema.ts` — plus `run`, which reaches the exact same launcher pipeline as the `claude` binary above, just fed a different argv source, so a `claude`-named file on `PATH` is never required. `shim enable`/`shim disable` is the one explicit, separate action that creates or removes that `claude`-named file at all — nothing does so automatically.
  */
 function buildClaudeUseProgram(): Command {
   const program = new Command();
@@ -53,6 +54,7 @@ function buildClaudeUseProgram(): Command {
   registerCheckCommand(program, paths);
   registerConfigureCommand(program, paths);
   registerDoctorCommand(program, paths);
+  registerShimCommand(program, paths);
 
   program
     .command("run")
@@ -129,7 +131,7 @@ function runClaude(argvOverride?: readonly string[]): void {
     spawn: realSpawnPort,
     proc: argvOverride === undefined ? realProcPort : { ...realProcPort, argv: argvOverride },
     log: realLogPort,
-    resolveClaudeBinary: realResolveClaudeBinary([path.dirname(process.argv[1] ?? process.execPath)]),
+    resolveClaudeBinary: realResolveClaudeBinary(resolveOwnInstallDirs(paths, process.argv[1] ?? process.execPath)),
     farm: farm.runtime,
     ...(farm.directoryIdentity === undefined ? {} : { directoryPinnedIdentity: farm.directoryIdentity }),
     ...(farm.directoryConfigProfile === undefined ? {} : { directoryRuleConfigProfile: farm.directoryConfigProfile }),

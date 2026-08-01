@@ -4,7 +4,9 @@ import type { Command } from "commander";
 import type { z } from "zod";
 
 import { lookupKeychainService } from "./check";
+import { ClaudeShimStateSchema, resolveOwnInstallDirs, type ClaudeShimState } from "./claudeShim";
 import { ConfigValidationError } from "./config/load";
+import { readJson } from "./config/store";
 import {
   CategoryClassificationOverlaySchema,
   ConfigProfileSchema,
@@ -24,6 +26,7 @@ export type DoctorSeverity = "pass" | "warn" | "fail";
 export type DoctorSection =
   | "ambient-credential"
   | "binary-discovery"
+  | "claude-shim"
   | "config-profile"
   | "identity"
   | "keychain"
@@ -83,6 +86,8 @@ export interface RunDoctorParams {
   readonly categoriesLocal: DoctorFileInput;
   readonly activeIdentity: DoctorFileInput;
   readonly binaryDiscovery: DoctorBinaryDiscovery;
+  /** Whether `claude-use shim enable` has been run, and whether its recorded target still exists on disk — pre-resolved by the wiring layer, since checking a file's existence is real I/O, not a parse-shaped pure operation. */
+  readonly claudeShim: { readonly state: ClaudeShimState | undefined; readonly targetExists: boolean };
   /** Runs `security find-generic-password` for the per-identity Keychain check. Omit to skip that check entirely (e.g. off macOS). */
   readonly run?: RunPort;
   /** `process.platform` in real use; the Keychain check only ever runs when this is `"darwin"`. */
@@ -136,6 +141,24 @@ export function runDoctor(params: RunDoctorParams): DoctorReport {
     push("binary-discovery", "pass", `Found ${binary.path} (${binary.source}${versionNote}).`);
   } else {
     push("binary-discovery", "fail", params.binaryDiscovery.message);
+  }
+
+  if (params.claudeShim.state === undefined) {
+    push("claude-shim", "pass", "No `claude` command shim enabled (the default). Run `claude-use shim enable` to add one.");
+  } else if (!params.claudeShim.targetExists) {
+    push(
+      "claude-shim",
+      "warn",
+      `claude-shim.json records a \`claude\` shim at ${params.claudeShim.state.targetPath}, but nothing is there. ` +
+        "Run `claude-use shim enable` again, or `claude-use shim disable` to clear the stale record.",
+    );
+  } else {
+    push(
+      "claude-shim",
+      "pass",
+      `\`claude\` is enabled at ${params.claudeShim.state.targetPath} (${params.claudeShim.state.method}). ` +
+        "If you've upgraded claude-use since, re-run `claude-use shim enable` to refresh it.",
+    );
   }
 
   const profileSources = new Map<string, ProfileSource>();
@@ -265,6 +288,7 @@ export function runDoctor(params: RunDoctorParams): DoctorReport {
 const SECTION_TITLES: Readonly<Record<DoctorSection, string>> = {
   "ambient-credential": "Ambient-credential exposure",
   "binary-discovery": "Claude Code binary discovery",
+  "claude-shim": "`claude` command shim",
   "config-profile": "Configuration profiles",
   identity: "Identities",
   keychain: "macOS Keychain",
@@ -277,6 +301,7 @@ const SECTION_TITLES: Readonly<Record<DoctorSection, string>> = {
 const SECTION_ORDER: readonly DoctorSection[] = [
   "ambient-credential",
   "binary-discovery",
+  "claude-shim",
   "config-profile",
   "identity",
   "keychain",
@@ -355,13 +380,17 @@ export function registerDoctorCommand(program: Command, paths: LayoutPaths): voi
         return { name, path: profilePath, raw: realFsPort.readFileUtf8(profilePath) };
       });
 
+      const ownExecutablePath = process.argv[1] ?? process.execPath;
+
       let binaryDiscovery: DoctorBinaryDiscovery;
       try {
-        const binary = realResolveClaudeBinary([path.dirname(process.argv[1] ?? process.execPath)])();
+        const binary = realResolveClaudeBinary(resolveOwnInstallDirs(paths, ownExecutablePath))();
         binaryDiscovery = { ok: true, binary };
       } catch (error) {
         binaryDiscovery = { ok: false, message: error instanceof Error ? error.message : String(error) };
       }
+
+      const shimState = readJson(paths.claudeShimFile, ClaudeShimStateSchema);
 
       const report = runDoctor({
         env: process.env,
@@ -372,6 +401,7 @@ export function registerDoctorCommand(program: Command, paths: LayoutPaths): voi
         categoriesLocal: { path: paths.categoriesLocalFile, raw: realFsPort.readFileUtf8(paths.categoriesLocalFile) },
         activeIdentity: { path: paths.activeIdentityFile, raw: realFsPort.readFileUtf8(paths.activeIdentityFile) },
         binaryDiscovery,
+        claudeShim: { state: shimState, targetExists: shimState !== undefined && fs.existsSync(shimState.targetPath) },
         run: realRunPort,
         platform: process.platform,
       });
