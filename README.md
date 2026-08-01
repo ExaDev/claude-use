@@ -19,18 +19,22 @@ Keeping these separate matters because they answer different questions. "Which l
 curl -fsSL https://github.com/ExaDev/claude-use/releases/latest/download/install.sh | sh
 ```
 
-This installs two binaries, `claude` and `claude-use`, into `~/.local/bin`. They're actually the same compiled executable — it decides which behaviour to run based on the name it was invoked as. No Node.js installation is required; both binaries are self-contained ([Node SEA](https://nodejs.org/api/single-executable-applications.html) builds).
+This installs `claude-use` alone into `~/.local/bin` — nothing else changes on your system, and in particular your `claude` command, however you already have it set up, is left completely untouched. `claude-use` doubles as the launcher itself: `claude-use run [args...]` reaches the exact same identity-resolve → farm-resync → spawn pipeline a `claude`-named binary would, so every feature this tool has already works with zero further setup. No Node.js installation is required; the binary is self-contained ([Node SEA](https://nodejs.org/api/single-executable-applications.html) build).
 
-Make sure `~/.local/bin` precedes any other `claude` installation (Homebrew, npm global, the native updater's own shim) on your `PATH`, since this `claude` needs to be the one that actually runs.
+If you'd also like the shorter `claude @<name>` form instead of `claude-use run @<name>`, that's one explicit, separate, reversible step:
 
-**Alternative: npm.** The same `claude-use` command (config/identity management only — not the `claude` launcher, see below) is also published as an npm package — useful if you already have Node ≥ 22.12 and would rather not download a platform-specific binary:
+```bash
+claude-use shim enable   # creates a `claude` launcher next to claude-use; claude-use shim disable undoes it
+```
+
+**Alternative: npm.** `claude-use` is also published as an npm package — useful if you already have Node ≥ 22.12 and would rather not download a platform-specific binary:
 
 ```bash
 npx claude-use identity list
 npm install -g claude-use
 ```
 
-The npm package deliberately ships only the `claude-use` bin — not `claude` — specifically so there's no bin-name ambiguity for `npx` to ever get wrong (a real, observed bug in at least one current npm version: a package exposing two bin names, one matching the package name, could still resolve to the wrong one on a bare `npx <package>@version` invocation). If you want the `claude` launcher itself, use the GitHub Release binary, Homebrew, or Scoop below — all three ship both commands. An npm-only install isn't limited to config management, though: `claude-use run [args...]` reaches the exact same launcher pipeline as the `claude` binary (identity resolve, farm resync, spawn), so `claude-use run @personal` works even where no `claude`-named binary exists at all.
+The npm package deliberately ships only the `claude-use` bin — not `claude` — specifically so there's no bin-name ambiguity for `npx` to ever get wrong (a real, observed bug in at least one current npm version: a package exposing two bin names, one matching the package name, could still resolve to the wrong one on a bare `npx <package>@version` invocation). `claude-use run [args...]` reaches the exact same launcher pipeline regardless of that. `claude-use shim enable` works here too on macOS/Linux — an npm install's own bundle is directly executable via its own shebang once hardlinked to a bare `claude` — though not on Windows, where an npm-installed claude-use running under Node has no bundled `.exe` to link from; use Scoop there instead.
 
 **Alternative: Homebrew (macOS and Linux).**
 
@@ -45,16 +49,16 @@ scoop bucket add claude-use https://github.com/ExaDev/scoop-claude-use
 scoop install claude-use
 ```
 
-The GitHub Release binary, Homebrew, and Scoop all install both `claude` and `claude-use` as ordinary commands, and all ship the self-contained Node SEA build (no Node.js installation required) — macOS arm64, both Linux architectures, and Windows x64 are all targets Node core itself tests and verifies `--build-sea` against upstream; macOS x64 is published best-effort, since Node core does not test or verify single-executable-application support on that target. npm installs only `claude-use` (see above) and ships the plain bundle, running under whatever Node ≥ 22.12 you already have.
+Every channel installs `claude-use` alone — none of them install a `claude` command; `claude-use shim enable` is the one explicit action that does, on any of them. The GitHub Release binary, Homebrew, and Scoop all ship the self-contained Node SEA build (no Node.js installation required) — macOS arm64, both Linux architectures, and Windows x64 are all targets Node core itself tests and verifies `--build-sea` against upstream; macOS x64 is published best-effort, since Node core does not test or verify single-executable-application support on that target. npm ships the plain bundle, running under whatever Node ≥ 22.12 you already have.
 
 ## Quick start
 
 ```bash
 claude-use identity add personal      # create your first identity (a fresh login)
-claude @personal                      # log in and start using it
+claude-use run @personal              # log in and start using it
 ```
 
-No `claude` binary on `PATH`? `claude-use run @personal` does the same thing.
+Want the shorter `claude @personal` instead? Run `claude-use shim enable` once — see [Install](#install).
 
 That's it — with no further configuration, everything in `~/.claude` that isn't credentials or daemon runtime is classified into categories (see below) and shared according to sensible defaults. Add a second identity, add configuration profiles, and add directory rules only once you actually need more control than that.
 
@@ -66,9 +70,9 @@ An identity is a directory at `~/.claude-use/identities/<name>/` — a symlink f
 
 Select an identity with:
 
-- `claude @<name>` — for this one invocation
-- `CLAUDE_ACCOUNT=<name> claude` — equivalent, via environment variable (this is `claude-use`'s own variable, read by its launcher; Anthropic's own multi-account convention is a plain `CLAUDE_CONFIG_DIR=<path> claude`, which `claude-use` builds on top of rather than replaces)
-- `claude-use run @<name>` — equivalent, without needing a `claude`-named binary on `PATH` at all: reaches the identical launcher pipeline through the already-installed `claude-use` command
+- `claude-use run @<name>` — for this one invocation, always available, no setup beyond installing `claude-use` itself
+- `claude @<name>` — equivalent, once `claude-use shim enable` has been run (see [Install](#install))
+- `CLAUDE_ACCOUNT=<name> claude` — equivalent, via environment variable (this is `claude-use`'s own variable, read by its launcher; Anthropic's own multi-account convention is a plain `CLAUDE_CONFIG_DIR=<path> claude`, which `claude-use` builds on top of rather than replaces) — also needs the shim enabled first
 - `claude-use identity use <name>` — persistently, until changed again
 
 A directory rule (see below) can also pin a specific identity to a path, overriding whichever one is otherwise active — useful as a safety net so a particular client's directory always uses the right login regardless of habit.
@@ -271,7 +275,7 @@ claude-use identity set <name> --allow-ambient-credential   # persistently, for 
 
 | What you're setting | Global (persistent) | Temporary (this run only) | Directory-scoped (persistent) |
 |---|---|---|---|
-| **Identity** | `claude-use identity use <name>` (writes `~/.claude-use/active-identity`) | `claude @<name>` / `CLAUDE_ACCOUNT=<name> claude` / `claude-use run @<name>` | `claude-use rules add <path> --identity <name>`; or `.claude-use.json`'s `"identity"` |
+| **Identity** | `claude-use identity use <name>` (writes `~/.claude-use/active-identity`) | `claude-use run @<name>` / `claude @<name>` (needs `claude-use shim enable`) / `CLAUDE_ACCOUNT=<name> claude` (same) | `claude-use rules add <path> --identity <name>`; or `.claude-use.json`'s `"identity"` |
 | **Configuration profile** | `claude-use profile set-default <name>`; or `claude-use identity set-default-profile <identity> <profile>` | `claude --config-profile <name>` / `CLAUDE_USE_CONFIG_PROFILE=<name> claude` | `claude-use rules add <path> --profile <name>`; or `.claude-use.json`'s `"configProfile"` |
 | **A category** | `claude-use profile set <name> --category history=true`; or `claude-use configure <identity>` | `claude --category history=true[,knowledge=false,...]` / `CLAUDE_USE_CATEGORY_OVERRIDE="history=true,knowledge=false"` | `claude-use configure <identity>` run from inside the ruled directory; or `.claude-use.json`'s `"categories"` |
 | **An individual entry** | `claude-use profile set <name> --entry "path"=true`; or `claude-use configure <identity> <path>` | `claude --share <path>[,<path>,...]` / `claude --hide <path>[,<path>,...]` / `CLAUDE_USE_ENTRY_OVERRIDE="path=true,otherpath=false"` | `claude-use configure <identity> <path>` run from inside the ruled directory; or `.claude-use.json`'s `"entries"` |
@@ -304,6 +308,8 @@ claude-use configure <identity> [path]
 claude-use check [path] [--identity <name>]
 claude-use doctor
 claude-use run [args...]
+claude-use shim enable [--dir <path>] [--force]
+claude-use shim disable [--dir <path>] [--force]
 ```
 
 ### `claude-use configure`: which file it writes to
@@ -333,7 +339,7 @@ It also runs three checks that don't depend on `path` at all, every time, so a r
 
 ### Debugging: `claude-use doctor`
 
-Where `claude-use check` resolves one directory+identity's cascade in detail, `claude-use doctor` audits the whole `~/.claude-use` config graph at once — identity/directory-agnostic, no arguments needed. It validates every identity's `identity.json`, every configuration profile's own `extends` chain (catching a missing profile name or a circular `extends` before a launch would), `directory-rules.json`, `config.json`, `categories.local.json`, and `active-identity`, each against its own Zod schema and cross-referenced against each other (an identity's `defaultConfigProfile`, a directory rule's `identity`/`configProfile`, actually pointing at something real) — plus whether a real Claude Code binary is discoverable at all and the same ambient-credential check `check` runs. One malformed file is reported as its own failure rather than aborting the rest of the audit, and the command exits non-zero if anything failed — useful as a scriptable "is everything still consistent" gate, not just an interactive debugging aid.
+Where `claude-use check` resolves one directory+identity's cascade in detail, `claude-use doctor` audits the whole `~/.claude-use` config graph at once — identity/directory-agnostic, no arguments needed. It validates every identity's `identity.json`, every configuration profile's own `extends` chain (catching a missing profile name or a circular `extends` before a launch would), `directory-rules.json`, `config.json`, `categories.local.json`, and `active-identity`, each against its own Zod schema and cross-referenced against each other (an identity's `defaultConfigProfile`, a directory rule's `identity`/`configProfile`, actually pointing at something real) — plus whether a real Claude Code binary is discoverable at all, whether the `claude` command shim is enabled and its recorded location still exists, and the same ambient-credential check `check` runs. One malformed file is reported as its own failure rather than aborting the rest of the audit, and the command exits non-zero if anything failed — useful as a scriptable "is everything still consistent" gate, not just an interactive debugging aid.
 
 ## Examples
 
@@ -449,6 +455,7 @@ src/
   configure.ts            # `claude-use configure` interactive picker (@clack/prompts)
   check.ts                # `claude-use check` dry-run inspector — cascade resolution, ambient-credential/Keychain/settings-secrets diagnostics — no farm writes, no spawn
   doctor.ts                # `claude-use doctor` whole-tree audit — every identity/profile/extends-chain/directory-rules/config.json/categories.local.json/active-identity, aggregating rather than throwing on a broken file
+  claudeShim.ts            # `claude-use shim enable`/`disable` — the one explicit action that creates/removes a `claude`-named hardlink of the running executable; records claude-shim.json
   cli/
     parsers.ts            # shared CLI-flag parsing helpers (splitTopLevelCommas, parsePair, repeatable-flag collectors)
   resolve.ts              # public facade re-exporting the resolver below — nothing outside src/resolve/ imports its internals directly
@@ -549,6 +556,8 @@ The published JSON Schemas under `schema/` should self-reference (and, if ever s
 `check.ts`'s three always-on diagnostics get their own tests too, independent of path/cascade resolution: the ambient-credential check against a fake `process.env` (same fixture as `launcher.ts`'s guard, since they share the same detection logic); the settings-secrets advisory against a fake settings.json with populated `env`/`hooks` fields, confirming it reports counts and key names only, never values; and — since Keychain access is real OS state, not something to fake — a manual/integration-only note that the Keychain-name lookup is exercised against a real `security` call in CI on macOS runners, not unit-tested with a mock.
 
 `doctor.ts` deliberately breaks the "throw a validation error and let it propagate" convention every other command file follows, since aggregating every check into one report — rather than aborting on the first broken file — is the whole point of the command. Its own tests cover this directly: every input (identities, configuration profiles, `directory-rules.json`, `config.json`, `categories.local.json`, `active-identity`) fed simultaneously malformed at once, asserting `runDoctor` still returns a full report with one `fail` finding per broken input rather than throwing, plus a genuine `extends` cycle correctly failing and a genuine diamond correctly not being mistaken for one. Its wiring layer sets `process.exitCode` rather than throwing or calling `process.exit()` when the report contains any failure — this is new to the codebase and not unit-tested, matching `registerCheckCommand`'s own I/O wiring being untested for the same reason.
+
+`claudeShim.test.ts` follows `identityManager.test.ts`'s real-temp-directory convention (a fake "own executable" file standing in for the running `claude-use` binary), rather than `doctor.ts`'s pure-function style, since `enableClaudeShim`/`disableClaudeShim` are themselves real filesystem operations, not something to keep separate from a thin wiring layer. Coverage includes the version-drift case that motivates persisting `claude-shim.json` at all (the source file overwritten in place between two `shim enable` runs, proving the marker — not the inode — is what lets the second run refresh cleanly instead of refusing), a foreign file at the target being refused without `--force` and accepted with it, and the cross-device (`EXDEV`) copy-fallback path via a small injectable `LinkFs` seam (mirroring `config/store.ts`'s own `StoreFs`/`nodeStoreFs` pattern), since a real cross-filesystem rig isn't practical in CI. One test also reproduces Homebrew's actual layout (a symlink into a separate "Cellar" directory) to confirm the shim lands next to the symlink users invoke, not buried in the directory its realpath resolves to.
 
 ## Development
 
