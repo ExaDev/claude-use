@@ -1,5 +1,8 @@
+import path from "node:path";
+
 import categoriesDefaultJson from "./config/categories.default.json";
 import { CategoryClassificationSchema, type CategoryClassification } from "./config/schema";
+import type { FarmFs, FarmStat } from "./launcher/ports";
 import type { EntryFact, EntryFacts } from "./resolve";
 
 /** The shipped classification map, parsed once, for use as the default in tests. */
@@ -100,4 +103,212 @@ export function makeFacts(
     ...overrides,
     entries,
   };
+}
+
+/** One node of the in-memory filesystem behind `createFakeFarmFs`. */
+type FakeNode =
+  | { kind: "dir"; mtimeMs: number }
+  | { kind: "file"; mtimeMs: number; content: string }
+  | { kind: "symlink"; mtimeMs: number; target: string };
+
+/** One mutating operation the fake filesystem performed, recorded so a test can assert that a resync wrote nothing at all. */
+export interface FakeFsWrite {
+  readonly op: "mkdirp" | "symlink" | "rename" | "remove" | "copy" | "write";
+  readonly path: string;
+}
+
+/** How one seeded entry should look. A string is shorthand for a file with that content. */
+export type FakeFsSeed = string | { readonly symlink: string } | { readonly dir: true };
+
+/** An in-memory `FarmFs` plus the extra handles a test needs to seed it and inspect what it did. */
+export interface FakeFarmFs extends FarmFs {
+  /** Creates entries (and any missing parent directories) from a flat path-to-content map. */
+  readonly seed: (entries: Readonly<Record<string, FakeFsSeed>>) => void;
+  /** Every mutating operation performed so far, in order. */
+  readonly writes: FakeFsWrite[];
+  /** Every path currently present, sorted — the whole filesystem, for a snapshot-style assertion. */
+  readonly snapshot: (root?: string) => string[];
+  /** The symlink target at `path`, or undefined when it is not a symlink. */
+  readonly linkTarget: (path: string) => string | undefined;
+}
+
+/**
+ * Builds an in-memory `FarmFs`.
+ *
+ * Deliberately stricter than the real thing in the two places where being lenient would hide a bug: writing a file into a directory that does not exist throws rather than creating it, and renaming onto an existing path throws rather than silently replacing it. Both are mistakes the real implementation would surface as an exception too, just later and less legibly.
+ */
+export function createFakeFarmFs(initial: Readonly<Record<string, FakeFsSeed>> = {}): FakeFarmFs {
+  const nodes = new Map<string, FakeNode>();
+  const writes: FakeFsWrite[] = [];
+  let clock = 1_000;
+
+  const nextMtime = (): number => {
+    clock += 1;
+    return clock;
+  };
+
+  const mkdirp = (dirPath: string): void => {
+    const parts = path.resolve(dirPath).split("/").filter((part) => part !== "");
+    let current = "";
+    for (const part of parts) {
+      current = `${current}/${part}`;
+      const existing = nodes.get(current);
+      if (existing === undefined) {
+        nodes.set(current, { kind: "dir", mtimeMs: nextMtime() });
+      } else if (existing.kind !== "dir") {
+        throw new Error(`Cannot create directory ${dirPath}: ${current} exists and is a ${existing.kind}.`);
+      }
+    }
+  };
+
+  const descendantsOf = (target: string): string[] =>
+    [...nodes.keys()].filter((candidate) => candidate.startsWith(`${target}/`));
+
+  const seed = (entries: Readonly<Record<string, FakeFsSeed>>): void => {
+    for (const [entryPath, value] of Object.entries(entries)) {
+      const resolved = path.resolve(entryPath);
+      mkdirp(path.dirname(resolved));
+      if (typeof value === "string") {
+        nodes.set(resolved, { kind: "file", mtimeMs: nextMtime(), content: value });
+      } else if ("symlink" in value) {
+        nodes.set(resolved, { kind: "symlink", mtimeMs: nextMtime(), target: value.symlink });
+      } else {
+        mkdirp(resolved);
+      }
+    }
+  };
+
+  seed(initial);
+  writes.length = 0;
+
+  const statOf = (node: FakeNode): FarmStat => {
+    if (node.kind === "file") {
+      return { kind: "file", mtimeMs: node.mtimeMs, sizeBytes: node.content.length };
+    }
+    if (node.kind === "symlink") {
+      return { kind: "symlink", mtimeMs: node.mtimeMs, sizeBytes: node.target.length };
+    }
+    return { kind: "dir", mtimeMs: node.mtimeMs, sizeBytes: 0 };
+  };
+
+  const fs: FakeFarmFs = {
+    seed,
+    writes,
+    snapshot: (root?: string) =>
+      [...nodes.keys()].filter((candidate) => root === undefined || candidate === root || candidate.startsWith(`${root}/`)).sort(),
+    linkTarget: (linkPath: string) => {
+      const node = nodes.get(path.resolve(linkPath));
+      return node?.kind === "symlink" ? node.target : undefined;
+    },
+    lstat: (target: string) => {
+      const node = nodes.get(path.resolve(target));
+      return node === undefined ? undefined : statOf(node);
+    },
+    readdir: (dirPath: string) => {
+      const resolved = path.resolve(dirPath);
+      if (nodes.get(resolved)?.kind !== "dir") {
+        return [];
+      }
+      const prefix = `${resolved}/`;
+      const names = new Set<string>();
+      for (const candidate of nodes.keys()) {
+        if (!candidate.startsWith(prefix)) {
+          continue;
+        }
+        const rest = candidate.slice(prefix.length);
+        const head = rest.split("/")[0];
+        if (head !== undefined && head !== "") {
+          names.add(head);
+        }
+      }
+      return [...names].sort();
+    },
+    mkdirp: (dirPath: string) => {
+      writes.push({ op: "mkdirp", path: dirPath });
+      mkdirp(dirPath);
+    },
+    symlink: (target: string, linkPath: string) => {
+      const resolved = path.resolve(linkPath);
+      writes.push({ op: "symlink", path: resolved });
+      if (nodes.has(resolved)) {
+        throw new Error(`Cannot create symlink ${resolved}: it already exists.`);
+      }
+      nodes.set(resolved, { kind: "symlink", mtimeMs: nextMtime(), target });
+    },
+    rename: (from: string, to: string) => {
+      const source = path.resolve(from);
+      const destination = path.resolve(to);
+      writes.push({ op: "rename", path: `${source} -> ${destination}` });
+      const node = nodes.get(source);
+      if (node === undefined) {
+        throw new Error(`Cannot rename ${source}: it does not exist.`);
+      }
+      if (nodes.has(destination)) {
+        throw new Error(`Cannot rename ${source} to ${destination}: the destination already exists.`);
+      }
+      for (const descendant of descendantsOf(source)) {
+        const moved = nodes.get(descendant);
+        if (moved !== undefined) {
+          nodes.set(`${destination}${descendant.slice(source.length)}`, moved);
+          nodes.delete(descendant);
+        }
+      }
+      nodes.set(destination, node);
+      nodes.delete(source);
+    },
+    removeRecursive: (target: string) => {
+      const resolved = path.resolve(target);
+      writes.push({ op: "remove", path: resolved });
+      for (const descendant of descendantsOf(resolved)) {
+        nodes.delete(descendant);
+      }
+      nodes.delete(resolved);
+    },
+    copyRecursive: (from: string, to: string) => {
+      const source = path.resolve(from);
+      const destination = path.resolve(to);
+      writes.push({ op: "copy", path: `${source} -> ${destination}` });
+      const node = nodes.get(source);
+      if (node === undefined) {
+        throw new Error(`Cannot copy ${source}: it does not exist.`);
+      }
+      nodes.set(destination, { ...node });
+      for (const descendant of descendantsOf(source)) {
+        const copied = nodes.get(descendant);
+        if (copied !== undefined) {
+          nodes.set(`${destination}${descendant.slice(source.length)}`, { ...copied });
+        }
+      }
+    },
+    readFileUtf8: (filePath: string) => {
+      const node = nodes.get(path.resolve(filePath));
+      return node?.kind === "file" ? node.content : undefined;
+    },
+    writeFileUtf8: (filePath: string, contents: string) => {
+      const resolved = path.resolve(filePath);
+      writes.push({ op: "write", path: resolved });
+      if (nodes.get(path.dirname(resolved))?.kind !== "dir") {
+        throw new Error(`Cannot write ${resolved}: its parent directory does not exist.`);
+      }
+      nodes.set(resolved, { kind: "file", mtimeMs: nextMtime(), content: contents });
+    },
+    writeFileExclusive: (filePath: string, contents: string) => {
+      const resolved = path.resolve(filePath);
+      if (nodes.has(resolved)) {
+        return false;
+      }
+      writes.push({ op: "write", path: resolved });
+      if (nodes.get(path.dirname(resolved))?.kind !== "dir") {
+        throw new Error(`Cannot write ${resolved}: its parent directory does not exist.`);
+      }
+      nodes.set(resolved, { kind: "file", mtimeMs: nextMtime(), content: contents });
+      return true;
+    },
+    hashFile: (filePath: string) => {
+      const node = nodes.get(path.resolve(filePath));
+      return node?.kind === "file" ? `sha:${node.content}` : undefined;
+    },
+  };
+
+  return fs;
 }

@@ -10,6 +10,46 @@ export interface FsPort {
   readonly readConfigFile: ConfigFileReader;
 }
 
+/** What one node of a tree is, as reported by an `lstat` that never follows symlinks. */
+export type FarmNodeKind = "dir" | "file" | "symlink";
+
+/** The subset of stat information the farm builder and the fact builder actually read. */
+export interface FarmStat {
+  readonly kind: FarmNodeKind;
+  readonly mtimeMs: number;
+  readonly sizeBytes: number;
+}
+
+/**
+ * Every filesystem operation the farm resync performs, injected so the whole of `src/launcher/farm.ts` — symlink creation, materialisation, adoption copies, and the atomic swap itself — runs against an in-memory fake in tests and never against a real `~/.claude` or `~/.claude-use`.
+ *
+ * `lstat` never follows symlinks: a `~/.claude` that contains a directory symlink escaping the tree (a skills directory linked out to a separate dotfiles repository, say) must be recorded as one symlink entry rather than recursed into, both to keep the fact manifest finite and because the farm links such an entry at `<claudeHome>/<rel>` and lets the OS resolve the remaining hops.
+ */
+export interface FarmFs {
+  /** Stats one path without following symlinks, or returns undefined when nothing is there. */
+  readonly lstat: (path: string) => FarmStat | undefined;
+  /** Lists one directory's immediate child names, or an empty list when it does not exist. */
+  readonly readdir: (path: string) => readonly string[];
+  /** Creates a directory and any missing parents, succeeding silently when it already exists. */
+  readonly mkdirp: (path: string) => void;
+  /** Creates a symbolic link at `linkPath` pointing at `target`. */
+  readonly symlink: (target: string, linkPath: string) => void;
+  /** Renames `from` to `to`. Both are always within one directory tree on one filesystem in this module's own usage, so this is the atomic primitive the farm swap is built on. */
+  readonly rename: (from: string, to: string) => void;
+  /** Removes a path and everything beneath it, succeeding silently when it does not exist. */
+  readonly removeRecursive: (path: string) => void;
+  /** Copies a file, symlink, or whole directory tree from `from` to `to`. */
+  readonly copyRecursive: (from: string, to: string) => void;
+  /** Reads a file's contents as UTF-8 text, or undefined when it does not exist. */
+  readonly readFileUtf8: (path: string) => string | undefined;
+  /** Writes a file's full contents as UTF-8 text, creating or truncating it. */
+  readonly writeFileUtf8: (path: string, contents: string) => void;
+  /** Creates a file only if it does not already exist, returning false when it does. This is the exclusive-create the identity lock depends on for its mutual exclusion — a read-then-write pair would race. */
+  readonly writeFileExclusive: (path: string, contents: string) => boolean;
+  /** A stable content hash of one file, or undefined when it is missing or is not a regular file. Used only to recognise farm data that has already been adopted into the canonical tree. */
+  readonly hashFile: (path: string) => string | undefined;
+}
+
 /** The outcome of one `spawnSync` call, mirroring Node's own `SpawnSyncReturns` shape narrowly to what the launcher actually reads. */
 export interface SpawnResult {
   /** The child's exit code, or null when it was terminated by a signal instead of exiting normally. */
