@@ -1,6 +1,19 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildLayoutPaths, resolveClaudeUseHome, resolveLayoutPaths } from "./paths";
+import { buildLayoutPaths, resolveClaudeUseHome, resolveLayoutPaths, type LayoutPaths } from "./paths";
+
+/** Every path field of a `LayoutPaths`, listed explicitly rather than via `Object.values` — `LayoutPaths` has no index signature, so `Object.values` on it falls back to `any[]`. */
+function layoutPathValues(layout: LayoutPaths): readonly string[] {
+  return [
+    layout.root,
+    layout.identitiesDir,
+    layout.configProfilesDir,
+    layout.directoryRulesFile,
+    layout.activeIdentityFile,
+    layout.globalConfigFile,
+    layout.categoriesLocalFile,
+  ];
+}
 
 describe("resolveClaudeUseHome", () => {
   it("reads CLAUDE_USE_HOME from the environment", () => {
@@ -14,7 +27,7 @@ describe("buildLayoutPaths", () => {
   const layout = buildLayoutPaths(root);
 
   it("derives every sub-path under the given root", () => {
-    for (const value of Object.values(layout)) {
+    for (const value of layoutPathValues(layout)) {
       expect(path.resolve(value).startsWith(path.resolve(root))).toBe(true);
     }
   });
@@ -51,8 +64,8 @@ describe("resolveLayoutPaths", () => {
     expect(home).toBeDefined();
     expect(layout.root).toBe(home);
 
-    for (const value of Object.values(layout)) {
-      expect(path.resolve(value).startsWith(path.resolve(home as string))).toBe(true);
+    for (const value of layoutPathValues(layout)) {
+      expect(path.resolve(value).startsWith(path.resolve(home!))).toBe(true);
     }
   });
 });
