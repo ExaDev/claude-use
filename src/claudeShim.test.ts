@@ -1,0 +1,244 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import {
+  ForeignClaudeEntryError,
+  UnsupportedShimSourceError,
+  claudeTargetFilename,
+  disableClaudeShim,
+  enableClaudeShim,
+  findPathShadow,
+  resolveClaudeTargetPath,
+  type LinkFs,
+} from "./claudeShim";
+import { buildLayoutPaths, type LayoutPaths } from "./paths";
+
+describe("claudeShim", () => {
+  let root: string;
+  let paths: LayoutPaths;
+  let binDir: string;
+  let sourcePath: string;
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "claude-shim-test-"));
+    paths = buildLayoutPaths(root);
+    // realpathSync immediately: enableClaudeShim/disableClaudeShim resolve the running executable's own realpath before deriving a target path (so a package manager's symlink indirection never produces a symlink-of-a- symlink), and macOS's os.tmpdir() itself resolves through a symlink (/var -> /private/var) -- without this, targetPath assertions below would compare a symlinked path against its own dereferenced form and fail.
+    binDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "claude-shim-bin-test-")));
+    sourcePath = path.join(binDir, "claude-use");
+    fs.writeFileSync(sourcePath, "fake-binary-v1", { mode: 0o755 });
+  });
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(binDir, { recursive: true, force: true });
+  });
+
+  describe("claudeTargetFilename", () => {
+    it("names the target `claude` for an extensionless source", () => {
+      expect(claudeTargetFilename("/usr/local/bin/claude-use")).toBe("claude");
+    });
+
+    it("names the target `claude.exe` for a .exe source", () => {
+      expect(claudeTargetFilename("C:\\bin\\claude-use.exe")).toBe("claude.exe");
+    });
+
+    it("names the target bare `claude`, not `claude.cjs`, for an npm install's dist/cli.cjs", () => {
+      expect(claudeTargetFilename("/usr/local/lib/node_modules/claude-use/dist/cli.cjs")).toBe("claude");
+    });
+  });
+
+  describe("enableClaudeShim", () => {
+    it("creates a fresh, executable claude next to the source", () => {
+      const result = enableClaudeShim({ paths, ownExecutablePath: sourcePath, platform: "linux", force: false });
+      expect(result.action).toBe("enabled");
+      expect(result.method).toBe("hardlink");
+      expect(result.targetPath).toBe(path.join(binDir, "claude"));
+      expect(fs.readFileSync(result.targetPath, "utf8")).toBe("fake-binary-v1");
+      expect(fs.statSync(result.targetPath).mode & 0o111).not.toBe(0);
+    });
+
+    it("is idempotent when re-run against the exact same source", () => {
+      enableClaudeShim({ paths, ownExecutablePath: sourcePath, platform: "linux", force: false });
+      const second = enableClaudeShim({ paths, ownExecutablePath: sourcePath, platform: "linux", force: false });
+      expect(second.action).toBe("reenabled");
+    });
+
+    it("refreshes after the source is overwritten in place (version drift), via the marker rather than the inode", () => {
+      enableClaudeShim({ paths, ownExecutablePath: sourcePath, platform: "linux", force: false });
+      fs.rmSync(sourcePath);
+      fs.writeFileSync(sourcePath, "fake-binary-v2", { mode: 0o755 }); // new inode, same path
+      const result = enableClaudeShim({ paths, ownExecutablePath: sourcePath, platform: "linux", force: false });
+      expect(result.action).toBe("reenabled");
+      expect(fs.readFileSync(result.targetPath, "utf8")).toBe("fake-binary-v2");
+    });
+
+    it("refuses to overwrite a foreign file at the target without --force", () => {
+      const targetPath = resolveClaudeTargetPath(sourcePath);
+      fs.writeFileSync(targetPath, "someone-elses-claude", { mode: 0o755 });
+      expect(() => enableClaudeShim({ paths, ownExecutablePath: sourcePath, platform: "linux", force: false })).toThrow(
+        ForeignClaudeEntryError,
+      );
+      expect(fs.readFileSync(targetPath, "utf8")).toBe("someone-elses-claude");
+    });
+
+    it("overwrites a foreign file when --force is given", () => {
+      const targetPath = resolveClaudeTargetPath(sourcePath);
+      fs.writeFileSync(targetPath, "someone-elses-claude", { mode: 0o755 });
+      enableClaudeShim({ paths, ownExecutablePath: sourcePath, platform: "linux", force: true });
+      expect(fs.readFileSync(targetPath, "utf8")).toBe("fake-binary-v1");
+    });
+
+    it("honours --dir, creating the directory if needed", () => {
+      const dir = path.join(binDir, "elsewhere");
+      const result = enableClaudeShim({ paths, ownExecutablePath: sourcePath, platform: "linux", dir, force: false });
+      expect(result.targetPath).toBe(path.join(dir, "claude"));
+      expect(fs.existsSync(result.targetPath)).toBe(true);
+    });
+
+    it("refuses on Windows when the source has no .exe extension", () => {
+      expect(() => enableClaudeShim({ paths, ownExecutablePath: sourcePath, platform: "win32", force: false })).toThrow(
+        UnsupportedShimSourceError,
+      );
+    });
+
+    it("succeeds on Windows when the source is a real .exe", () => {
+      const exeSource = path.join(binDir, "claude-use.exe");
+      fs.writeFileSync(exeSource, "fake-binary-v1", { mode: 0o755 });
+      const result = enableClaudeShim({ paths, ownExecutablePath: exeSource, platform: "win32", force: false });
+      expect(result.targetPath).toBe(path.join(binDir, "claude.exe"));
+    });
+
+    it("produces a bare `claude`, not `claude.cjs`, when enabling from an npm-style .cjs bundle", () => {
+      const cjsSource = path.join(binDir, "cli.cjs");
+      fs.writeFileSync(cjsSource, "#!/usr/bin/env node\nfake-bundle", { mode: 0o755 });
+      const result = enableClaudeShim({ paths, ownExecutablePath: cjsSource, platform: "linux", force: false });
+      expect(result.targetPath).toBe(path.join(binDir, "claude"));
+    });
+
+    it("does not apply the Windows guard on other platforms even without a .exe extension", () => {
+      const result = enableClaudeShim({ paths, ownExecutablePath: sourcePath, platform: "darwin", force: false });
+      expect(result.action).toBe("enabled");
+    });
+
+    it("falls back to copy on a cross-device (EXDEV) error, via the injectable LinkFs seam", () => {
+      const calls: string[] = [];
+      const fakeLinkFs: LinkFs = {
+        link: () => {
+          calls.push("link");
+          throw Object.assign(new Error("cross-device"), { code: "EXDEV" });
+        },
+        copyFile: (src, dest) => {
+          calls.push("copyFile");
+          fs.copyFileSync(src, dest);
+        },
+        chmod: (target, mode) => {
+          calls.push("chmod");
+          fs.chmodSync(target, mode);
+        },
+      };
+      const result = enableClaudeShim({ paths, ownExecutablePath: sourcePath, platform: "linux", force: false }, fakeLinkFs);
+      expect(result.method).toBe("copy");
+      expect(calls).toEqual(["link", "copyFile", "chmod"]);
+    });
+
+    it("propagates any other link error unchanged, without falling back", () => {
+      const fakeLinkFs: LinkFs = {
+        link: () => {
+          throw Object.assign(new Error("permission denied"), { code: "EACCES" });
+        },
+        copyFile: () => {
+          throw new Error("should not be called");
+        },
+        chmod: () => {
+          throw new Error("should not be called");
+        },
+      };
+      expect(() => enableClaudeShim({ paths, ownExecutablePath: sourcePath, platform: "linux", force: false }, fakeLinkFs)).toThrow(
+        "permission denied",
+      );
+    });
+  });
+
+  describe("disableClaudeShim", () => {
+    it("removes a shim it created", () => {
+      const enabled = enableClaudeShim({ paths, ownExecutablePath: sourcePath, platform: "linux", force: false });
+      const result = disableClaudeShim({ paths, ownExecutablePath: sourcePath, force: false });
+      expect(result.action).toBe("disabled");
+      expect(fs.existsSync(enabled.targetPath)).toBe(false);
+      expect(fs.existsSync(paths.claudeShimFile)).toBe(false);
+    });
+
+    it("is a no-op, not an error, when nothing is enabled", () => {
+      const result = disableClaudeShim({ paths, ownExecutablePath: sourcePath, force: false });
+      expect(result.action).toBe("not-enabled");
+    });
+
+    it("clears a dangling marker when the target has since been deleted by other means", () => {
+      const enabled = enableClaudeShim({ paths, ownExecutablePath: sourcePath, platform: "linux", force: false });
+      fs.rmSync(enabled.targetPath);
+      const result = disableClaudeShim({ paths, ownExecutablePath: sourcePath, force: false });
+      expect(result.action).toBe("not-enabled");
+      expect(fs.existsSync(paths.claudeShimFile)).toBe(false);
+    });
+
+    it("refuses to remove a foreign file without --force", () => {
+      const targetPath = resolveClaudeTargetPath(sourcePath);
+      fs.writeFileSync(targetPath, "someone-elses-claude", { mode: 0o755 });
+      expect(() => disableClaudeShim({ paths, ownExecutablePath: sourcePath, force: false })).toThrow(ForeignClaudeEntryError);
+      expect(fs.existsSync(targetPath)).toBe(true);
+    });
+
+    it("removes a foreign file when --force is given", () => {
+      const targetPath = resolveClaudeTargetPath(sourcePath);
+      fs.writeFileSync(targetPath, "someone-elses-claude", { mode: 0o755 });
+      const result = disableClaudeShim({ paths, ownExecutablePath: sourcePath, force: true });
+      expect(result.action).toBe("disabled");
+      expect(fs.existsSync(targetPath)).toBe(false);
+    });
+
+    it("prefers --dir over a marker pointing elsewhere", () => {
+      enableClaudeShim({ paths, ownExecutablePath: sourcePath, platform: "linux", force: false }); // marker points at binDir
+      const otherDir = path.join(binDir, "elsewhere");
+      fs.mkdirSync(otherDir, { recursive: true });
+      const otherTarget = path.join(otherDir, "claude");
+      fs.linkSync(sourcePath, otherTarget);
+      const result = disableClaudeShim({ paths, ownExecutablePath: sourcePath, dir: otherDir, force: false });
+      expect(result.targetPath).toBe(otherTarget);
+      expect(fs.existsSync(otherTarget)).toBe(false);
+    });
+  });
+
+  describe("findPathShadow", () => {
+    it("reports ok when the own directory is first on PATH with a match", () => {
+      const status = findPathShadow({
+        pathDirs: ["/own/dir", "/other/dir"],
+        targetDir: "/own/dir",
+        targetFilename: "claude",
+        findExecutableInDir: (dir, name) => (dir === "/own/dir" ? `/own/dir/${name}` : undefined),
+      });
+      expect(status).toEqual({ status: "ok" });
+    });
+
+    it("reports shadowed when an earlier PATH directory has a match", () => {
+      const status = findPathShadow({
+        pathDirs: ["/earlier/dir", "/own/dir"],
+        targetDir: "/own/dir",
+        targetFilename: "claude",
+        findExecutableInDir: (dir, name) => (dir === "/earlier/dir" ? `/earlier/dir/${name}` : undefined),
+      });
+      expect(status).toEqual({ status: "shadowed", by: "/earlier/dir/claude" });
+    });
+
+    it("reports not-on-path when the own directory isn't in pathDirs at all and nothing matches", () => {
+      const status = findPathShadow({
+        pathDirs: ["/other/dir"],
+        targetDir: "/own/dir",
+        targetFilename: "claude",
+        findExecutableInDir: () => undefined,
+      });
+      expect(status).toEqual({ status: "not-on-path" });
+    });
+  });
+});
