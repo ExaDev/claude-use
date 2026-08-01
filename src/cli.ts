@@ -1,17 +1,35 @@
+import os from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { Command } from "commander";
 
+import categoriesDefaultJson from "./config/categories.default.json";
+import { cosmiconfigReader } from "./config/load";
+import { CategoryClassificationOverlaySchema, CategoryClassificationSchema } from "./config/schema";
+import { readJson } from "./config/store";
 import { registerIdentityCommand } from "./identityManager";
 import { registerProfileCommand } from "./configProfiles";
 import { registerRulesCommand } from "./directoryRules";
-import { resolveLayoutPaths } from "./paths";
-import { runLauncher } from "./launcher";
-import { realFsPort, realLogPort, realProcPort, realResolveClaudeBinary, realSpawnPort } from "./realPorts";
+import { resolveClaudeHome, resolveLayoutPaths, type LayoutPaths } from "./paths";
+import { runLauncher, type FarmRuntime } from "./launcher";
+import { loadCascadeInput, readDirectorySelections } from "./launcher/cascade";
+import {
+  realFarmFs,
+  realFsPort,
+  realIsProcessAlive,
+  realLogPort,
+  realProcPort,
+  realResolveClaudeBinary,
+  realRunPort,
+  realSleepSync,
+  realSpawnPort,
+  resolveGitBranch,
+} from "./realPorts";
 
 /**
  * The single entrypoint backing both the `claude` and `claude-use` binaries — one compiled artifact, dispatching on which name it was invoked as (`path.basename(process.argv[1])`), per the SEA packaging proof-of-concept validated in Phase 2.
  *
- * `claude` runs the launcher (`src/launcher.ts`'s `runLauncher`), wired here with real ports (`src/realPorts.ts`) instead of the fakes every test in this project uses. This phase wires identity resolution and launch-flag env-var escape hatches end to end — `claude @name` and `CLAUDE_ACCOUNT=name claude` already work against an identity created with `claude-use identity add`, spawning the real `claude` binary with `CLAUDE_CONFIG_DIR` pointed straight at that identity's own directory. There is no symlink farm yet: cascade resolution and farm resync are Phase 5's job, and `runLauncher` is already structured to slot that in without changing anything here.
+ * `claude` runs the launcher (`src/launcher.ts`'s `runLauncher`), wired here with real ports (`src/realPorts.ts`) instead of the fakes every test in this project uses. It resolves the identity, loads and assembles the cascade for the current directory, resyncs that identity's symlink farm to match, and spawns the real `claude` binary with `CLAUDE_CONFIG_DIR` pointed at the farm.
  *
  * `claude-use` runs the Commander tree exposing `identity`/`profile`/`rules` subcommands, each a thin adapter over `src/config/store.ts` and the Zod schemas in `src/config/schema.ts`.
  */
@@ -27,8 +45,57 @@ function buildClaudeUseProgram(): Command {
   return program;
 }
 
+/** Builds the farm runtime the launcher's resync step needs, wired to real filesystem, clock, git, and process facilities, plus the directory-scoped selections the launcher needs before it can resync anything. */
+function buildFarmRuntime(paths: LayoutPaths): {
+  runtime: FarmRuntime;
+  directoryIdentity?: string;
+  directoryConfigProfile?: string;
+  globalDefaultConfigProfile?: string;
+} {
+  const home = os.homedir();
+  const cwd = process.cwd();
+  const read = cosmiconfigReader();
+  const overlay = readJson(paths.categoriesLocalFile, CategoryClassificationOverlaySchema);
+  const classification = {
+    defaults: CategoryClassificationSchema.parse(categoriesDefaultJson),
+    ...(overlay === undefined ? {} : { overlay }),
+  };
+  const loaded = loadCascadeInput({ paths, home, cwd, read });
+  const selections = readDirectorySelections(loaded);
+  const git = resolveGitBranch(realRunPort, cwd);
+
+  return {
+    runtime: {
+      fs: realFarmFs,
+      claudeHome: resolveClaudeHome(),
+      home,
+      cwd,
+      ...(git.branch === undefined ? {} : { branch: git.branch }),
+      ...(git.branchDetached === undefined ? {} : { branchDetached: git.branchDetached }),
+      classification,
+      loadCascade: (baseConfigProfile) =>
+        loadCascadeInput({
+          paths,
+          home,
+          cwd,
+          read,
+          ...(baseConfigProfile === undefined ? {} : { baseConfigProfile }),
+        }).input,
+      now: () => Date.now(),
+      uniqueSuffix: `${process.pid}.${randomUUID()}`,
+      lock: { pid: process.pid, isProcessAlive: realIsProcessAlive, sleep: realSleepSync },
+    },
+    ...(selections.identity === undefined ? {} : { directoryIdentity: selections.identity }),
+    ...(selections.configProfile === undefined ? {} : { directoryConfigProfile: selections.configProfile }),
+    ...(loaded.globalConfig?.defaultConfigProfile === undefined
+      ? {}
+      : { globalDefaultConfigProfile: loaded.globalConfig.defaultConfigProfile }),
+  };
+}
+
 function runClaude(): void {
   const paths = resolveLayoutPaths();
+  const farm = buildFarmRuntime(paths);
   runLauncher({
     paths,
     fs: realFsPort,
@@ -36,6 +103,10 @@ function runClaude(): void {
     proc: realProcPort,
     log: realLogPort,
     resolveClaudeBinary: realResolveClaudeBinary([path.dirname(process.argv[1] ?? process.execPath)]),
+    farm: farm.runtime,
+    ...(farm.directoryIdentity === undefined ? {} : { directoryPinnedIdentity: farm.directoryIdentity }),
+    ...(farm.directoryConfigProfile === undefined ? {} : { directoryRuleConfigProfile: farm.directoryConfigProfile }),
+    ...(farm.globalDefaultConfigProfile === undefined ? {} : { globalDefaultConfigProfile: farm.globalDefaultConfigProfile }),
   });
 }
 

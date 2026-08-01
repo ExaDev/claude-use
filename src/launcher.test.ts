@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { runLauncher, type RunLauncherParams } from "./launcher";
+import { runLauncher, type FarmRuntime, type RunLauncherParams } from "./launcher";
+import { identityLockPath } from "./launcher/lock";
 import type { FsPort, LogPort, ProcPort, SpawnPort, SpawnResult } from "./launcher/ports";
 import { buildLayoutPaths } from "./paths";
+import type { CascadeInput } from "./resolve";
+import { createFakeFarmFs, FAKE_CLAUDE_HOME, FAKE_HOME, FAKE_NOW_MS, shippedClassification, type FakeFarmFs } from "./test-helpers";
 import type { DiscoveredClaudeBinary } from "./versionDiscovery";
 
 class ExitCalled extends Error {
@@ -275,5 +278,145 @@ describe("runLauncher", () => {
     });
 
     expect(code).toBe(2);
+  });
+});
+
+function fakeFarm(fs: FakeFarmFs, cliOverride?: CascadeInput["cliOverride"]): FarmRuntime {
+  return {
+    fs,
+    claudeHome: FAKE_CLAUDE_HOME,
+    home: FAKE_HOME,
+    cwd: `${FAKE_HOME}/work`,
+    classification: { defaults: shippedClassification },
+    loadCascade: () => ({
+      home: FAKE_HOME,
+      loadProfile: () => undefined,
+      levels: [],
+      ...(cliOverride === undefined ? {} : { cliOverride }),
+    }),
+    now: () => FAKE_NOW_MS,
+    uniqueSuffix: "launcher-test",
+    lock: { pid: 42, isProcessAlive: () => true, sleep: () => {}, maxAttempts: 2 },
+  };
+}
+
+describe("runLauncher farm resync", () => {
+  it("resyncs the identity's farm before spawning, and applies the cascade's own launch flags", () => {
+    const fs = createFakeFarmFs({
+      [`${FAKE_CLAUDE_HOME}/skills/commit/SKILL.md`]: "commit",
+      [`${FAKE_CLAUDE_HOME}/.credentials.json`]: "a real token",
+    });
+    const spawn = fakeSpawn();
+
+    runAndCaptureExit({
+      paths,
+      fs: fakeFs({}),
+      spawn,
+      proc: fakeProc({}, ["@work"]),
+      log: fakeLog(),
+      resolveClaudeBinary: () => discovered,
+      farm: fakeFarm(fs, { launch: { skipPermissions: true } }),
+    });
+
+    expect(fs.linkTarget(`${FAKE_HOME}/.claude-use/identities/work/skills`)).toBe(`${FAKE_CLAUDE_HOME}/skills`);
+    expect(fs.lstat(`${FAKE_HOME}/.claude-use/identities/work/.credentials.json`)).toBeUndefined();
+    expect(spawn.spawnSync).toHaveBeenCalledWith(discovered.path, ["--dangerously-skip-permissions"], {
+      stdio: "inherit",
+      env: { CLAUDE_CONFIG_DIR: `${FAKE_HOME}/.claude-use/identities/work` },
+    });
+  });
+
+  it("does not touch any farm when the CLAUDE_CONFIG_DIR escape hatch applies", () => {
+    const fs = createFakeFarmFs({ [`${FAKE_CLAUDE_HOME}/skills/commit/SKILL.md`]: "commit" });
+    const spawn = fakeSpawn();
+
+    runAndCaptureExit({
+      paths,
+      fs: fakeFs({}),
+      spawn,
+      proc: fakeProc({ CLAUDE_CONFIG_DIR: "/somewhere/explicit" }, ["@work"]),
+      log: fakeLog(),
+      resolveClaudeBinary: () => discovered,
+      farm: fakeFarm(fs),
+    });
+
+    expect(fs.writes).toEqual([]);
+    expect(spawn.spawnSync).toHaveBeenCalled();
+  });
+
+  it("does not build a farm for a bare launch that resolved no identity at all", () => {
+    const fs = createFakeFarmFs({ [`${FAKE_CLAUDE_HOME}/skills/commit/SKILL.md`]: "commit" });
+
+    runAndCaptureExit({
+      paths,
+      fs: fakeFs({}),
+      spawn: fakeSpawn(),
+      proc: fakeProc({}, []),
+      log: fakeLog(),
+      resolveClaudeBinary: () => discovered,
+      farm: fakeFarm(fs),
+    });
+
+    expect(fs.writes).toEqual([]);
+  });
+
+  it("refuses to launch rather than racing a concurrent resync of the same identity", () => {
+    const fs = createFakeFarmFs({ [`${FAKE_CLAUDE_HOME}/skills/commit/SKILL.md`]: "commit" });
+    fs.mkdirp(`${FAKE_HOME}/.claude-use/identities`);
+    fs.writeFileUtf8(
+      identityLockPath(`${FAKE_HOME}/.claude-use/identities`, "work"),
+      JSON.stringify({ identity: "work", pid: 99, token: "sibling", acquiredAtMs: FAKE_NOW_MS }),
+    );
+    const spawn = fakeSpawn();
+    const log = fakeLog();
+
+    const code = runAndCaptureExit({
+      paths,
+      fs: fakeFs({}),
+      spawn,
+      proc: fakeProc({}, ["@work"]),
+      log,
+      resolveClaudeBinary: () => discovered,
+      farm: fakeFarm(fs),
+    });
+
+    expect(code).toBe(1);
+    expect(spawn.spawnSync).not.toHaveBeenCalled();
+    expect(log.errors[0]).toContain("already running for identity");
+  });
+});
+
+describe("runLauncher crash recovery ordering", () => {
+  it("restores a farm left mid-swap before reading the identity.json that lives inside it", () => {
+    const identitiesDir = `${FAKE_HOME}/.claude-use/identities`;
+    const fs = createFakeFarmFs({
+      [`${FAKE_CLAUDE_HOME}/skills/commit/SKILL.md`]: "commit",
+      // Exactly what a crash between the swap's two renames leaves: no farm, and everything in a superseded copy.
+      [`${identitiesDir}/.work.previous.crashed/identity.json`]: '{"name":"work"}',
+    });
+
+    let identityWasReadableWhenLoaded: boolean | undefined;
+    const fsPort: FsPort = {
+      readFileUtf8: () => undefined,
+      readConfigFile: (filePath) => {
+        if (filePath === `${identitiesDir}/work/identity.json`) {
+          identityWasReadableWhenLoaded = fs.lstat(filePath) !== undefined;
+        }
+        return undefined;
+      },
+    };
+
+    runAndCaptureExit({
+      paths,
+      fs: fsPort,
+      spawn: fakeSpawn(),
+      proc: fakeProc({}, ["@work"]),
+      log: fakeLog(),
+      resolveClaudeBinary: () => discovered,
+      farm: fakeFarm(fs),
+    });
+
+    expect(identityWasReadableWhenLoaded).toBe(true);
+    expect(fs.readFileUtf8(`${identitiesDir}/work/identity.json`)).toBe('{"name":"work"}');
   });
 });

@@ -34,6 +34,19 @@ export function resolveClaudeUseHome(): string {
   return path.join(os.homedir(), ".claude-use");
 }
 
+/**
+ * Resolves the canonical `~/.claude` directory every farm symlink points back into: `CLAUDE_USE_CLAUDE_HOME` when set to a non-empty string, otherwise `~/.claude`.
+ *
+ * The override exists for the same reason `CLAUDE_USE_HOME` does. Exercising a real resync end to end means building and swapping real directories, and doing that against a real, in-use `~/.claude` to find out whether the code is correct is not an acceptable way to find out. Pointing both variables at throwaway directories makes a full end-to-end run safe.
+ */
+export function resolveClaudeHome(): string {
+  const fromEnv = process.env.CLAUDE_USE_CLAUDE_HOME;
+  if (fromEnv !== undefined && fromEnv !== "") {
+    return fromEnv;
+  }
+  return path.join(os.homedir(), ".claude");
+}
+
 /** Builds the full LayoutPaths structure from a given root directory. */
 export function buildLayoutPaths(root: string): LayoutPaths {
   return {

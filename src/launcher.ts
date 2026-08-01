@@ -1,12 +1,46 @@
 import type { LayoutPaths } from "./paths";
 import { parseLauncherArgv } from "./launcher/argv";
+import { recoverFarm, recoveryDiagnostics, resyncFarm } from "./launcher/farm";
 import { evaluateAmbientCredentialGuard } from "./launcher/guard";
 import { decideConfigProfile, decideIdentity, loadIdentity } from "./launcher/identity";
 import { buildArgv, buildEnv, buildFlagArgs, resolveLaunchFlags } from "./launcher/flags";
 import { splitExtraFlags } from "./launcher/extraFlags";
-import type { FsPort, LogPort, ProcPort, SpawnPort } from "./launcher/ports";
+import { IdentityLockBusyError } from "./launcher/lock";
+import type { FarmFs, FsPort, LogPort, ProcPort, SpawnPort } from "./launcher/ports";
 import { spawnClaude } from "./launcher/spawn";
+import type { CategoryClassification, CategoryClassificationOverlay, LaunchFlags } from "./config/schema";
+import type { CascadeInput } from "./resolve";
 import type { DiscoveredClaudeBinary } from "./versionDiscovery";
+
+/**
+ * Everything the farm resync needs that the launcher itself has no way to produce: a real filesystem, a real clock, the working directory, and a way to load the cascade for it.
+ *
+ * Supplied by `src/cli.ts` in normal operation. A caller that omits it launches with no farm at all, which is the right behaviour in exactly the cases where there is no claude-use-managed farm to resync — and is what the launcher's own pre-farm tests exercise.
+ */
+export interface FarmRuntime {
+  readonly fs: FarmFs;
+  /** The canonical `~/.claude` every farm symlink points back into. */
+  readonly claudeHome: string;
+  readonly home: string;
+  readonly cwd: string;
+  /** The git branch at `cwd`, for `when: { branch }` conditions. Undefined when `cwd` is not in a repository. */
+  readonly branch?: string;
+  readonly branchDetached?: boolean;
+  readonly classification: { readonly defaults: CategoryClassification; readonly overlay?: CategoryClassificationOverlay };
+  /** Loads and assembles the cascade for `cwd` under the given configuration profile. Injected so the launcher never reads a config file itself. */
+  readonly loadCascade: (baseConfigProfile: string | undefined) => CascadeInput;
+  readonly now: () => number;
+  /** Distinguishes this process's scratch and superseded farm directories from any other's. */
+  readonly uniqueSuffix: string;
+  readonly lock: {
+    readonly pid: number;
+    readonly isProcessAlive: (pid: number) => boolean;
+    readonly sleep: (ms: number) => void;
+    readonly staleAfterMs?: number;
+    readonly retryDelayMs?: number;
+    readonly maxAttempts?: number;
+  };
+}
 
 /** Inputs to `runLauncher`. */
 export interface RunLauncherParams {
@@ -25,14 +59,16 @@ export interface RunLauncherParams {
   readonly cliFlagConfigProfile?: string;
   /** The user-global `~/.claude-use/config.json` default configuration profile, when one is configured. */
   readonly globalDefaultConfigProfile?: string;
+  /** Wires the farm resync. Omitted only by a caller that has no farm to manage. */
+  readonly farm?: FarmRuntime;
 }
 
 /**
  * Orchestrates one `claude` launch, in order:
  *
- * `CLAUDE_CONFIG_DIR` escape-hatch check -> ambient-credential guard -> identity/config-profile decision -> version discovery -> flag resolution -> extra-flags split -> spawn.
+ * `CLAUDE_CONFIG_DIR` escape-hatch check -> ambient-credential guard -> identity/config-profile decision -> farm resync -> version discovery -> flag resolution -> extra-flags split -> spawn.
  *
- * Cascade resolution and farm resync are Phase 5's job — this phase resolves launch flags directly from whatever the loaded identity carries (nothing yet, since config profiles themselves aren't loaded until Phase 4), plus the one-off environment variable escape hatches, which is exactly what `resolveLaunchFlags` already treats an absent cascade value as equivalent to. Phase 5 slots cascade assembly and farm resync in between the config-profile decision and flag resolution without needing to restructure anything here — every step below is already its own discrete, sequential call.
+ * The farm resync is skipped when `CLAUDE_CONFIG_DIR` was already set (the escape hatch means the user has named a configuration directory explicitly, and claude-use manages neither its contents nor its lifetime) and when no identity resolved at all (a bare launch against plain `~/.claude`, matching the legacy tool's own behaviour). In both cases there is no claude-use-managed farm for a resync to act on.
  */
 export function runLauncher(params: RunLauncherParams): void {
   const { paths, fs, spawn, proc, log } = params;
@@ -54,6 +90,33 @@ export function runLauncher(params: RunLauncherParams): void {
       return trimmed === "" ? undefined : trimmed;
     },
   });
+
+  // There is a farm to manage only when an identity resolved and the caller did not name a configuration directory itself.
+  const farmIdentity = configDirEscapeHatchApplies ? undefined : identityDecision.name;
+  const farm = farmIdentity === undefined ? undefined : params.farm;
+
+  // Recovery runs before the identity is loaded, not merely before the farm is rebuilt: `identity.json` lives inside the farm root, so a crash between the swap's two renames leaves it in a superseded directory. Reading it first would launch with the identity's own configuration profile silently unset.
+  if (farm !== undefined && farmIdentity !== undefined) {
+    let recovery;
+    try {
+      recovery = recoverFarm({
+        fs: farm.fs,
+        identitiesDir: paths.identitiesDir,
+        identity: farmIdentity,
+        now: farm.now,
+        lock: farm.lock,
+      });
+    } catch (error) {
+      if (error instanceof IdentityLockBusyError) {
+        log.error(error.message);
+        return proc.exit(1);
+      }
+      throw error;
+    }
+    for (const diagnostic of recoveryDiagnostics(recovery)) {
+      log.warn(`claude-use: ${diagnostic.code}: ${diagnostic.message}`);
+    }
+  }
 
   let loadedIdentity: ReturnType<typeof loadIdentity>;
   if (identityDecision.name !== undefined) {
@@ -91,11 +154,55 @@ export function runLauncher(params: RunLauncherParams): void {
       `config profile ${configProfileDecision.name ?? "(none)"} (${configProfileDecision.source})`,
   );
 
-  // Phase 5 slots cascade assembly + farm resync here, between the config-profile decision above and flag resolution below — nothing above or below this comment needs to change to make room for it.
+  // The farm resync sits here, between the identity/profile decision above and flag resolution below, because it needs the first and produces an input to the second: the cascade it resolves carries this launch's `launch` flags, which is why `resolveLaunchFlags` is called with them rather than with the environment alone.
+  let cascadeLaunch: LaunchFlags | undefined;
+  if (farm !== undefined && farmIdentity !== undefined) {
+    let result;
+    try {
+      result = resyncFarm({
+        fs: farm.fs,
+        identitiesDir: paths.identitiesDir,
+        identity: farmIdentity,
+        ...(configProfileDecision.name === undefined ? {} : { configProfile: configProfileDecision.name }),
+        claudeHome: farm.claudeHome,
+        home: farm.home,
+        cwd: farm.cwd,
+        env,
+        ...(farm.branch === undefined ? {} : { branch: farm.branch }),
+        ...(farm.branchDetached === undefined ? {} : { branchDetached: farm.branchDetached }),
+        cascade: farm.loadCascade(configProfileDecision.name),
+        classification: farm.classification,
+        now: farm.now,
+        uniqueSuffix: farm.uniqueSuffix,
+        lock: farm.lock,
+      });
+    } catch (error) {
+      if (error instanceof IdentityLockBusyError) {
+        log.error(error.message);
+        return proc.exit(1);
+      }
+      throw error;
+    }
+
+    for (const diagnostic of result.diagnostics) {
+      if (diagnostic.severity === "error") {
+        log.error(`claude-use: ${diagnostic.code}: ${diagnostic.message}`);
+      } else if (diagnostic.severity === "warning") {
+        log.warn(`claude-use: ${diagnostic.code}: ${diagnostic.message}`);
+      }
+    }
+    log.info(
+      result.noOp
+        ? `claude-use: farm at ${result.farmRoot} already matches the resolved cascade`
+        : `claude-use: farm at ${result.farmRoot} resynced (${result.manifest.links.length} link(s), ` +
+          `${result.manifest.materialised.length} built director(ies)${result.adopted.length === 0 ? "" : `, ${result.adopted.length} adopted into ${farm.claudeHome}`})`,
+    );
+    cascadeLaunch = result.resolved.flattened.launch;
+  }
 
   const discovered = params.resolveClaudeBinary();
 
-  const resolvedFlags = resolveLaunchFlags({ env });
+  const resolvedFlags = resolveLaunchFlags({ env, ...(cascadeLaunch === undefined ? {} : { cascade: cascadeLaunch }) });
   const finalArgv = buildArgv({
     toolFlags: buildFlagArgs(resolvedFlags),
     extraFlags: splitExtraFlags(env.CLAUDE_EXTRA_FLAGS),
