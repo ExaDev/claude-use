@@ -36,7 +36,7 @@ That's it — with no further configuration, everything in `~/.claude` that isn'
 
 ### Identities
 
-An identity is a directory at `~/.claude-use/identities/<name>/` — a symlink farm mirroring the parts of `~/.claude` that are configured to be shared, plus its own locally-written credentials and daemon state that are never shared with any other identity. This is what `CLAUDE_CONFIG_DIR` points at when you run `claude` under that identity. Alongside the farm, the identity directory holds one small, Zod-validated `identity.json` (created by `claude-use identity add`) whose only current field is the optional `defaultConfigProfile` used to resolve which configuration profile applies, per below.
+An identity is a directory at `~/.claude-use/identities/<name>/` — a symlink farm mirroring the parts of `~/.claude` that are configured to be shared, plus its own locally-written credentials and daemon state that are never shared with any other identity. This is what `CLAUDE_CONFIG_DIR` points at when you run `claude` under that identity. Alongside the farm, the identity directory holds one small, Zod-validated `identity.json` (created by `claude-use identity add`): the optional `defaultConfigProfile` used to resolve which configuration profile applies (per below), and the optional `allowAmbientCredential` boolean (default `false`) that opts this one identity out of the ambient-credential launch guard described next.
 
 Select an identity with:
 
@@ -48,7 +48,17 @@ A directory rule (see below) can also pin a specific identity to a path, overrid
 
 **Where the actual login credential lives, per platform, and where isolation can break down.** Claude Code fully relocates its own state under `CLAUDE_CONFIG_DIR` on every platform — including `.claude.json` (below) and, on Linux and Windows, `.credentials.json` — so on those platforms each identity's login is a genuinely separate file. **macOS is the exception**: Claude Code stores credentials in the encrypted macOS Keychain there, never in a `.credentials.json` file, regardless of `CLAUDE_CONFIG_DIR`. In practice this still isolates per identity — Keychain entries observed in the wild are named `Claude Code-credentials-<hash>`, distinctly per configuration directory, not one fixed item shared by every identity — but this namespacing isn't documented by Anthropic, only empirically observed, so treat it as verify-before-relying-on rather than a guaranteed contract, especially across Claude Code version changes.
 
-**More importantly, on every platform, a handful of environment variables silently outrank whichever credential — file or Keychain — is stored for the active identity.** `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, and the `CLAUDE_CODE_USE_BEDROCK`/`VERTEX`/`FOUNDRY` family all authenticate Claude Code directly from the process environment, ahead of any stored subscription login, and none of them live inside `CLAUDE_CONFIG_DIR` at all — they come from whatever shell environment the process inherits. If any of these are set globally (a shell profile, a parent process, an inherited CI secret), **every identity authenticates as that same account or key**, regardless of which `CLAUDE_CONFIG_DIR`/Keychain entry claude-use has isolated — silently defeating the entire premise of separate identities. Keep these variables unset in any shell profile you expect claude-use's identities to actually separate; if one needs to be set for a specific, deliberate reason, set it per-invocation, not globally.
+**More importantly, on every platform, a handful of environment variables silently outrank whichever credential — file or Keychain — is stored for the active identity: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, and the `CLAUDE_CODE_USE_BEDROCK`/`VERTEX`/`FOUNDRY` family.** They authenticate Claude Code directly from the process environment, ahead of any stored subscription login, and none of them live inside `CLAUDE_CONFIG_DIR` — they come from whatever shell environment the process inherits. If any of these are set globally, every identity would silently authenticate as that same account or key, defeating the entire premise of separate identities — so rather than just warning about this, `claude` checks for all of them before every launch and **refuses to start** if any is present, naming exactly which one and why:
+
+```
+error: ANTHROPIC_API_KEY is set in the environment. This identity's isolated
+credential would be bypassed — every identity authenticates as this same key
+while it's set. Unset it, or if this is deliberate, opt in per-launch with
+CLAUDE_USE_ALLOW_AMBIENT_CREDENTIAL=1, or persistently for this identity with
+`claude-use identity set <name> --allow-ambient-credential`.
+```
+
+The check runs regardless of platform (it doesn't depend on the macOS Keychain caveat above — it's about the environment, not where the credential is stored) and is opt-out, not opt-in: a shared credential has to be a deliberate choice, made explicitly, not an ambient shell setting nobody remembers is there. `claude-use check` (below) also surfaces this proactively, without needing to actually attempt a launch to find out.
 
 ### Configuration profiles
 
@@ -219,6 +229,15 @@ CLAUDE_USE_REMOTE_CONTROL=1 claude
 
 `$CLAUDE_EXTRA_FLAGS` is passed straight through to the underlying `claude` binary.
 
+### Ambient-credential guard
+
+Before any of the above, the launcher checks the environment for `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, and `CLAUDE_CODE_USE_FOUNDRY` (see [Identities](#identities) for why) and refuses to launch if any is present, unless the active identity has `allowAmbientCredential: true` in its `identity.json` or `CLAUDE_USE_ALLOW_AMBIENT_CREDENTIAL=1` is set for this one invocation:
+
+```bash
+CLAUDE_USE_ALLOW_AMBIENT_CREDENTIAL=1 claude   # this run only
+claude-use identity set <name> --allow-ambient-credential   # persistently, for this identity
+```
+
 ## CLI reference
 
 | What you're setting | Global (persistent) | Temporary (this run only) | Directory-scoped (persistent) |
@@ -228,6 +247,7 @@ CLAUDE_USE_REMOTE_CONTROL=1 claude
 | **A category** | `claude-use profile set <name> --category history=true`; or `claude-use configure <identity>` | `claude --category history=true[,knowledge=false,...]` / `CLAUDE_USE_CATEGORY_OVERRIDE="history=true,knowledge=false"` | `claude-use configure <identity>` run from inside the ruled directory; or `.claude-use.json`'s `"categories"` |
 | **An individual entry** | `claude-use profile set <name> --entry "path"=true`; or `claude-use configure <identity> <path>` | `claude --share <path>[,<path>,...]` / `claude --hide <path>[,<path>,...]` / `CLAUDE_USE_ENTRY_OVERRIDE="path=true,otherpath=false"` | `claude-use configure <identity> <path>` run from inside the ruled directory; or `.claude-use.json`'s `"entries"` |
 | **Launch flags** | `claude-use profile set <name> [--skip-permissions] [--remote-control]` | `CLAUDE_USE_SKIP_PERMISSIONS=1 claude` / `CLAUDE_USE_REMOTE_CONTROL=1 claude` | rule's inline `"launch"` field; or `.claude-use.json`'s `"launch"` |
+| **Ambient-credential guard** | `claude-use identity set <name> --allow-ambient-credential` (per identity, in its `identity.json`) | `CLAUDE_USE_ALLOW_AMBIENT_CREDENTIAL=1 claude` | not applicable — this guard is about the active identity's own credential, not a directory context |
 
 The scriptable `claude-use profile set ...` commands exist alongside the interactive picker specifically so this is automatable — CI, setup scripts, or a `.claude-use.json` generator don't need to drive an interactive prompt. `--category`, `--entry`, `--share`, and `--hide` are all repeatable in one invocation (`claude --share <path> --share <path>`) and their env-var equivalents take a comma-separated list of `key=value` pairs, the same convention `--extends` already uses below — so temporarily sharing two paths at once, or setting two categories in one launch, doesn't need two separate invocations. `CLAUDE_EXTRA_FLAGS` (below) is the one exception: it's a single opaque string, split on whitespace before being appended to the real binary's argv — a flag value that itself needs an embedded space isn't expressible through it.
 
@@ -238,6 +258,7 @@ claude-use identity add <name>
 claude-use identity use <name>
 claude-use identity list
 claude-use identity set-default-profile <identity> <profile>
+claude-use identity set <name> [--allow-ambient-credential | --no-allow-ambient-credential]
 
 claude-use profile create <name> [--extends <name>,<name>,...]
 claude-use profile list
@@ -272,6 +293,12 @@ In both modes, *where* a toggle is written depends on `$PWD` at invocation time,
 ### Debugging: `claude-use check`
 
 `claude-use check [path] [--identity <name>]` resolves the full cascade for the given path (default `$PWD`) and identity (default the active one), and prints the result — every entry's resolved state, which layer decided it, and which condition (if any) was evaluated and how — without touching the farm or spawning `claude` at all. This is the primary way to answer "why is X shared/hidden here" without launching a session to find out. For any `history/projects/` glob override in scope, it also flags whenever the pattern's encoded form could plausibly match more than one real path (see [Pattern matching](#pattern-matching-against-claudeprojects)), rather than resolving that ambiguity silently.
+
+It also runs three checks that don't depend on `path` at all, every time, so a review of an identity's isolation doesn't require reasoning through the cascade by hand:
+
+- **Ambient-credential exposure** — the same environment-variable check the launcher itself runs (above), surfaced here too so you can audit an identity without attempting a launch.
+- **Credential storage, on macOS** — prints the Keychain service name Claude Code is actually using for the active identity (`security find-generic-password` under the hood), so you can visually confirm two identities really do resolve to two distinct entries rather than trusting the empirical pattern described in [Identities](#identities) blindly.
+- **`settings` exposure** — if the `settings` category resolves shared for this identity, and the underlying `settings.json`/`settings.local.json` has a non-empty `env` or `hooks` field, prints how many keys/commands would be shared (names only, never values) so you can review them against [the secrets caveat](#category-based-sharing) yourself, rather than the tool guessing at what looks like a secret.
 
 ## Examples
 
@@ -364,12 +391,12 @@ One compiled binary backs both `claude` and `claude-use` — the entrypoint disp
 ```
 src/
   cli.ts                 # entrypoint; dispatches on invoked name -> launcher vs identity/profile-manager subcommands
-  launcher.ts             # `claude` behaviour: resolve cascade for $PWD, resync farm, resolve launch flags, spawn real binary
+  launcher.ts             # `claude` behaviour: ambient-credential guard, resolve cascade for $PWD, resync farm, resolve launch flags, spawn real binary
   identityManager.ts      # `claude-use identity` subcommands
   configProfiles.ts       # `claude-use profile` subcommands (scriptable set/set-default alongside `create`/`list`)
   directoryRules.ts       # `claude-use rules` subcommands
   configure.ts            # interactive picker
-  check.ts                # `claude-use check` dry-run inspector — no farm writes, no spawn
+  check.ts                # `claude-use check` dry-run inspector — cascade resolution, ambient-credential/Keychain/settings-secrets diagnostics — no farm writes, no spawn
   resolve.ts              # pure cascade resolver — categories, path overrides, configuration profiles, directory rules,
                            # committed .claude-use.json / .claude-use.local.json discovery. The unit-tested core.
   versionDiscovery.ts     # portable "find the real claude binary" logic
@@ -434,7 +461,9 @@ The published JSON Schemas under `schema/` should self-reference (and, if ever s
 - Conditional entries with injectable/fake mtimes, a fake resolved branch, and a fake env snapshot (never real filesystem/git/environment state, so tests aren't time-dependent, git-dependent, or slow) — a `newerThan` condition including a fresh file and excluding a stale one under the same glob, a `branch` condition applying only on a matching branch, an `env` condition applying only when the right variable is set, and a conditionally-matched subtree always being materialised rather than symlinked
 - A materialised directory reconciling any real (non-symlink) children written since the last resync back into `~/.claude` before re-deciding, and collapsing back into a plain symlink once its split condition no longer holds
 
-`identityManager.ts`, `configProfiles.ts`, `directoryRules.ts`, and `configure.ts` stay thin adapters over `resolve.ts`, so most of their correctness rides on the resolver's own test coverage above. `launcher.ts` carries two separately-testable responsibilities of its own that aren't covered by `resolve.ts`'s purity, and need their own coverage: translating a resolved `Map<path, boolean>` into real filesystem side effects (creating/removing symlinks, materialising/collapsing directories, diffing against the farm's prior state, the per-identity lock and atomic-swap behaviour from [Directory rules](#directory-rules)) against a fake/in-memory filesystem; and invoking the real `claude` binary via an injected `spawn` function (argv/env construction, exit-code propagation), never a real subprocess in a unit test.
+`identityManager.ts`, `configProfiles.ts`, `directoryRules.ts`, and `configure.ts` stay thin adapters over `resolve.ts`, so most of their correctness rides on the resolver's own test coverage above. `launcher.ts` carries three separately-testable responsibilities of its own that aren't covered by `resolve.ts`'s purity, and need their own coverage: translating a resolved `Map<path, boolean>` into real filesystem side effects (creating/removing symlinks, materialising/collapsing directories, diffing against the farm's prior state, the per-identity lock and atomic-swap behaviour from [Directory rules](#directory-rules)) against a fake/in-memory filesystem; invoking the real `claude` binary via an injected `spawn` function (argv/env construction, exit-code propagation), never a real subprocess in a unit test; and the ambient-credential guard — given a fake `process.env`, refusing to proceed when any of the six named variables is set and the active identity's `allowAmbientCredential` is unset/false, proceeding when it's true, and proceeding when `CLAUDE_USE_ALLOW_AMBIENT_CREDENTIAL=1` is set for that one call regardless of the identity's own setting.
+
+`check.ts`'s three always-on diagnostics get their own tests too, independent of path/cascade resolution: the ambient-credential check against a fake `process.env` (same fixture as `launcher.ts`'s guard, since they share the same detection logic); the settings-secrets advisory against a fake settings.json with populated `env`/`hooks` fields, confirming it reports counts and key names only, never values; and — since Keychain access is real OS state, not something to fake — a manual/integration-only note that the Keychain-name lookup is exercised against a real `security` call in CI on macOS runners, not unit-tested with a mock.
 
 ## Contributing
 
