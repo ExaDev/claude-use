@@ -38,4 +38,51 @@ describe("parseLauncherArgv", () => {
     expect(result.identity).toBe("personal");
     expect(result.rest).toEqual(["@work", "--print"]);
   });
+
+  it("returns empty flag arrays and no config profile when none are given", () => {
+    const result = parseLauncherArgv(["--print", "hello"]);
+    expect(result.configProfile).toBeUndefined();
+    expect(result.categoryFlags).toEqual([]);
+    expect(result.shareFlags).toEqual([]);
+    expect(result.hideFlags).toEqual([]);
+    expect(result.rest).toEqual(["--print", "hello"]);
+  });
+
+  it("consumes --config-profile <name> and strips it from rest", () => {
+    const result = parseLauncherArgv(["--config-profile", "work", "--print"]);
+    expect(result.configProfile).toBe("work");
+    expect(result.rest).toEqual(["--print"]);
+  });
+
+  it("accepts --config-profile=<name> inline form", () => {
+    const result = parseLauncherArgv(["--config-profile=work", "--print"]);
+    expect(result.configProfile).toBe("work");
+    expect(result.rest).toEqual(["--print"]);
+  });
+
+  it("accumulates repeated --category flags in order", () => {
+    const result = parseLauncherArgv(["--category", "history=true", "--print", "--category", "knowledge=false"]);
+    expect(result.categoryFlags).toEqual(["history=true", "knowledge=false"]);
+    expect(result.rest).toEqual(["--print"]);
+  });
+
+  it("accumulates repeated --share and --hide flags, each keeping comma-separated values as one raw entry", () => {
+    const result = parseLauncherArgv(["--share", "knowledge/skills/a,knowledge/skills/b", "--hide", "history/projects/x"]);
+    expect(result.shareFlags).toEqual(["knowledge/skills/a,knowledge/skills/b"]);
+    expect(result.hideFlags).toEqual(["history/projects/x"]);
+    expect(result.rest).toEqual([]);
+  });
+
+  it("leaves a valued flag untouched when it is the very last token with no value to pair", () => {
+    const result = parseLauncherArgv(["--print", "--category"]);
+    expect(result.categoryFlags).toEqual([]);
+    expect(result.rest).toEqual(["--print", "--category"]);
+  });
+
+  it("consumes claude-use flags positioned after a leading @name", () => {
+    const result = parseLauncherArgv(["@work", "--category", "history=true", "--print"]);
+    expect(result.identity).toBe("work");
+    expect(result.categoryFlags).toEqual(["history=true"]);
+    expect(result.rest).toEqual(["--print"]);
+  });
 });
