@@ -1,0 +1,106 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { buildLayoutPaths, type LayoutPaths } from "./paths";
+import {
+  DirectoryRuleNotFoundError,
+  addDirectoryRule,
+  listDirectoryRules,
+  readDirectoryRules,
+  removeDirectoryRule,
+} from "./directoryRules";
+
+describe("directoryRules", () => {
+  let root: string;
+  let paths: LayoutPaths;
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "directory-rules-test-"));
+    paths = buildLayoutPaths(root);
+  });
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  describe("readDirectoryRules", () => {
+    it("returns an empty rule set when the file does not exist yet", () => {
+      expect(readDirectoryRules(paths)).toEqual({ rules: [] });
+    });
+  });
+
+  describe("addDirectoryRule", () => {
+    it("creates the file and adds a first rule with a profile", () => {
+      const rule = addDirectoryRule(paths, "~/work/clients/acme", { configProfile: "client-acme" });
+      expect(rule).toEqual({ path: "~/work/clients/acme", configProfile: "client-acme" });
+      expect(listDirectoryRules(paths)).toEqual([rule]);
+    });
+
+    it("adds a rule with an identity pin instead of a profile", () => {
+      const rule = addDirectoryRule(paths, "~/work/clients/regulated", { identity: "work" });
+      expect(rule).toEqual({ path: "~/work/clients/regulated", identity: "work" });
+    });
+
+    it("adds a rule with both a profile and an identity", () => {
+      const rule = addDirectoryRule(paths, "~/work/clients/regulated", {
+        configProfile: "client-strict",
+        identity: "work",
+      });
+      expect(rule).toEqual({
+        path: "~/work/clients/regulated",
+        configProfile: "client-strict",
+        identity: "work",
+      });
+    });
+
+    it("throws when neither --profile nor --identity is given", () => {
+      expect(() => addDirectoryRule(paths, "~/work", {})).toThrow(/at least one/);
+    });
+
+    it("appends a second rule for a different path", () => {
+      addDirectoryRule(paths, "~/work/clients/acme", { configProfile: "client-acme" });
+      addDirectoryRule(paths, "~/work/clients/widget", { configProfile: "client-widget" });
+      expect(listDirectoryRules(paths).map((rule) => rule.path)).toEqual([
+        "~/work/clients/acme",
+        "~/work/clients/widget",
+      ]);
+    });
+
+    it("updates the existing rule in place when adding for the same path again, rather than duplicating it", () => {
+      addDirectoryRule(paths, "~/work/clients/acme", { configProfile: "client-acme" });
+      const updated = addDirectoryRule(paths, "~/work/clients/acme", { configProfile: "client-acme-v2" });
+      const all = listDirectoryRules(paths);
+      expect(all).toHaveLength(1);
+      expect(updated.configProfile).toBe("client-acme-v2");
+    });
+
+    it("merges an identity pin onto an existing profile-only rule for the same path", () => {
+      addDirectoryRule(paths, "~/work/clients/acme", { configProfile: "client-acme" });
+      const updated = addDirectoryRule(paths, "~/work/clients/acme", { identity: "work" });
+      expect(updated).toEqual({
+        path: "~/work/clients/acme",
+        configProfile: "client-acme",
+        identity: "work",
+      });
+    });
+  });
+
+  describe("removeDirectoryRule", () => {
+    it("removes the matching rule", () => {
+      addDirectoryRule(paths, "~/work/clients/acme", { configProfile: "client-acme" });
+      addDirectoryRule(paths, "~/work/clients/widget", { configProfile: "client-widget" });
+      removeDirectoryRule(paths, "~/work/clients/acme");
+      expect(listDirectoryRules(paths).map((rule) => rule.path)).toEqual(["~/work/clients/widget"]);
+    });
+
+    it("throws DirectoryRuleNotFoundError when no rule matches", () => {
+      expect(() => removeDirectoryRule(paths, "~/nonexistent")).toThrow(DirectoryRuleNotFoundError);
+    });
+
+    it("throws DirectoryRuleNotFoundError when the file does not exist at all", () => {
+      expect(() => removeDirectoryRule(paths, "~/nonexistent")).toThrow(DirectoryRuleNotFoundError);
+    });
+  });
+});
