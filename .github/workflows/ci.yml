@@ -257,28 +257,28 @@ jobs:
       - run: pnpm schema
       - run: node scripts/stamp-schema-ids.mjs "${GITHUB_REF_NAME}"
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: claude-use-macos-arm64
           path: artifacts
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: claude-use-macos-x64-unverified
           path: artifacts
         continue-on-error: true
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: claude-use-linux-x64
           path: artifacts
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: claude-use-linux-arm64
           path: artifacts
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: claude-use-windows-x64
           path: artifacts
