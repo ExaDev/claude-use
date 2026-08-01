@@ -204,7 +204,8 @@ function listVersionsDir(dir: string): VersionsDirEntry[] {
     });
 }
 
-function findExecutableInDir(dir: string, name: string): string | undefined {
+/** Looks for a file literally named `name` inside `dir` and confirms it's an executable regular file. Exported so `src/claudeShim.ts`'s PATH-shadow check can reuse the exact same semantics `discoverClaudeBinary`'s own PATH fallback already uses, rather than shelling out to a shell builtin like `command -v`. */
+export function findExecutableInDir(dir: string, name: string): string | undefined {
   const candidate = path.join(dir, name);
   try {
     const stat = fs.statSync(candidate);
