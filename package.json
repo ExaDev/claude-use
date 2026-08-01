@@ -9,7 +9,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "echo 'build not yet implemented (lands in a later phase)'"
+    "build": "node scripts/build.mts"
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0",

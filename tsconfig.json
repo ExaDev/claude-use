@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2023"],
-    "module": "commonjs",
+    "module": "preserve",
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "strict": true,
@@ -14,6 +14,6 @@
     "outDir": "dist",
     "rootDir": "."
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts", "vitest.config.mts"],
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "scripts/**/*.mts", "vitest.config.mts"],
   "exclude": ["node_modules", "dist"]
 }
