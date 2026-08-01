@@ -51,7 +51,7 @@ export function addDirectoryRule(paths: LayoutPaths, rulePath: string, options: 
     updated = buildNewRule(rulePath, options);
     writeDirectoryRules(paths, { ...current, rules: [...current.rules, updated] });
   } else {
-    const existingRule = current.rules[existingIndex] as DirectoryRule;
+    const existingRule = current.rules[existingIndex]!;
     updated = {
       ...existingRule,
       ...(options.configProfile !== undefined ? { configProfile: options.configProfile } : {}),
