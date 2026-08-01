@@ -46,6 +46,8 @@ Select an identity with:
 
 A directory rule (see below) can also pin a specific identity to a path, overriding whichever one is otherwise active — useful as a safety net so a particular client's directory always uses the right login regardless of habit.
 
+**If `CLAUDE_CONFIG_DIR` is already set when `claude` runs, `claude-use` skips its own identity/cascade resolution entirely and lets the real binary use whatever it already points to** — the same "explicit signal wins" precedence used everywhere else in this design (an `@name` beats a directory pin, for instance). There is no farm to resync and no identity to resolve in this case, since you've named a configuration directory yourself. The ambient-credential guard below still runs regardless of this escape hatch — it's a check about credential isolation, not about identity or config-directory selection, so naming your own `CLAUDE_CONFIG_DIR` doesn't exempt you from it.
+
 **Where the actual login credential lives, per platform, and where isolation can break down.** Claude Code fully relocates its own state under `CLAUDE_CONFIG_DIR` on every platform — including `.claude.json` (below) and, on Linux and Windows, `.credentials.json` — so on those platforms each identity's login is a genuinely separate file. **macOS is the exception**: Claude Code stores credentials in the encrypted macOS Keychain there, never in a `.credentials.json` file, regardless of `CLAUDE_CONFIG_DIR`. In practice this still isolates per identity — Keychain entries observed in the wild are named `Claude Code-credentials-<hash>`, distinctly per configuration directory, not one fixed item shared by every identity — but this namespacing isn't documented by Anthropic, only empirically observed, so treat it as verify-before-relying-on rather than a guaranteed contract, especially across Claude Code version changes.
 
 **More importantly, on every platform, a handful of environment variables silently outrank whichever credential — file or Keychain — is stored for the active identity: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, and the `CLAUDE_CODE_USE_BEDROCK`/`VERTEX`/`FOUNDRY` family.** They authenticate Claude Code directly from the process environment, ahead of any stored subscription login, and none of them live inside `CLAUDE_CONFIG_DIR` — they come from whatever shell environment the process inherits. If any of these are set globally, every identity would silently authenticate as that same account or key, defeating the entire premise of separate identities — so rather than just warning about this, `claude` checks for all of them before every launch and **refuses to start** if any is present, naming exactly which one and why:
@@ -64,7 +66,7 @@ The check runs regardless of platform (it doesn't depend on the macOS Keychain c
 
 A configuration profile is a named, reusable JSON file at `~/.claude-use/config-profiles/<name>.json` describing what to share: category toggles, individual path overrides, and launch flags. It isn't tied to any identity. Which profile applies, for a given launch, is resolved in this order:
 
-1. An explicit `--config-profile` flag or `CLAUDE_USE_CONFIG_PROFILE` environment variable (this run only)
+1. The `CLAUDE_USE_CONFIG_PROFILE` environment variable (this run only — `claude` itself takes no `--config-profile` flag)
 2. A directory rule's `configProfile` selection for `$PWD` (see [Directory rules](#directory-rules))
 3. The active identity's own declared default (`defaultConfigProfile` in its `identity.json`)
 4. A global default (`~/.claude-use/config.json`)
@@ -93,7 +95,7 @@ Every top-level entry in `~/.claude` is classified into one of five categories, 
 
 This is a safe-by-default posture: only `knowledge` and `settings` are shared out of the box. A configuration profile can open up `history` (or anything else) wholesale, or share individual items within a closed category.
 
-`secret`'s "never, cannot be overridden" is an absolute check `resolve.ts` makes *before* running the two-phase cascade at all — not merely the least-specific layer in that cascade, the way every other category is. This matters because [The cascade](#the-cascade-how-everything-composes)'s general rule is that a specific `entries` override always beats a category default; `secret` is the one deliberate exception, so an explicit `entries: { ".credentials.json": true }` anywhere in any layer is rejected outright, the same as a bare `categories: { secret: true }` would be — path-specificity never gets a chance to apply to this one category.
+`secret`'s "never, cannot be overridden" is an absolute check `resolve.ts` makes *before* running the two-phase cascade at all — not merely the least-specific layer in that cascade, the way every other category is. This matters because [The cascade](#the-cascade-how-everything-composes)'s general rule is that a specific `entries` override always beats a category default; `secret` is the one deliberate exception, so an explicit `entries: { "secret/.credentials.json": true }` anywhere in any layer is rejected outright, the same as a bare `categories: { secret: true }` would be — path-specificity never gets a chance to apply to this one category.
 
 **`~/.claude.json` isn't in this table at all, because — unlike `backups/` above — it isn't sourced from `~/.claude` the way everything else here is.** It's a sibling *file* next to the `~/.claude` directory, not an entry inside it: the OAuth session, personal (user/local-scope) MCP server definitions, and per-project trust decisions (which directories you've approved Claude Code to run in, and what it's allowed to do there). It fully relocates to `$CLAUDE_CONFIG_DIR/.claude.json` when set, the same as everything else — confirmed both in Anthropic's own Agent SDK documentation and empirically in this project's own development. Because it's generated fresh by Claude Code itself the moment it first runs under a new `CLAUDE_CONFIG_DIR`, `claude-use` treats it the same way as `secret`: always identity-local, never part of the shared cascade, and — since it isn't even a descendant of `~/.claude` — never something the resolver's directory walk encounters at all, rather than something explicitly excluded by category. `~/.claude/backups/` holds rolling timestamped copies of it (capped at five, auto-rotating) for Claude Code's own config-migration safety; being a genuine descendant of `~/.claude`, it *is* something the resolver walks past, which is exactly why it's listed under `secret` in the table above rather than merely assumed safe.
 
@@ -152,7 +154,7 @@ Every layer composes with what came before it; nothing is a wholesale replacemen
 
 **Phase one — flatten.** Walk the ordered layer sequence once, spreading each layer's `categories` and `entries` over an accumulator. A later layer's value for the exact same category name, or the exact same literal/glob entries key, replaces an earlier layer's value for that identical key. This is a plain shallow merge — no path-specificity reasoning happens here.
 
-**Phase two — resolve per entry.** For each actual file under `~/.claude`, look up the flattened entries map for the most specific matching key: an exact literal path beats a glob that also matches it; among several matching globs that came from *different* layers, whichever survived phase one (i.e. the later layer) wins, since phase one already collapsed those to one value per identical key. Two *different* globs from the *same* layer's own `entries` object (e.g. one profile setting both `"history/projects/*"` and `"history/projects/ac*"` at once) are a same-layer conflict phase one can't resolve, since they're distinct keys, not an identical one — phase two breaks this tie by longest literal (non-wildcard) prefix first; if that's exactly equal too, the pattern that appears later in the source file's own key order wins. Only if nothing in the entries map matches at all does the entry fall back to the flattened categories map.
+**Phase two — resolve per entry.** For each actual file under `~/.claude`, look up the flattened entries map for every matching key and rank them by, in order: (1) **which layer set the rule — later layer wins, period**, ranked above exactness deliberately, because ranking exactness first would let an untrusted committed `.claude-use.json`'s exact key beat your own later, personal glob override, which would break this design's own stated trust property that a directory-scoped local rule can only ever tighten what a committed file opened, never the reverse; (2) same layer, an exact literal beats a glob; (3) same layer, the longer literal (non-wildcard) prefix wins; (4) same layer, more path segments wins (disambiguates `a/*` from `a/*/*` at the same prefix length); (5) same layer, later ordinal (source order within the file) wins. Only if nothing in the entries map matches at all does the entry fall back to the flattened categories map.
 
 The consequence worth internalising: **entries always outrank the category default, regardless of which layer set which.** A directory rule three levels deep that flips `categories: { history: false }` cannot silently undo an earlier, shallower layer's `entries: { "history/projects/acme": true }` — a category setting is definitionally the least specific override there is. To actually change that one path, a later layer has to set an equally-or-more-specific entry itself, not merely toggle the category.
 
@@ -231,7 +233,7 @@ CLAUDE_USE_REMOTE_CONTROL=1 claude
 
 ### Ambient-credential guard
 
-Before any of the above, the launcher checks the environment for `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, and `CLAUDE_CODE_USE_FOUNDRY` (see [Identities](#identities) for why) and refuses to launch if any is present, unless the active identity has `allowAmbientCredential: true` in its `identity.json` or `CLAUDE_USE_ALLOW_AMBIENT_CREDENTIAL=1` is set for this one invocation:
+Before any of the above, the launcher checks the environment for `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, and `CLAUDE_CODE_USE_FOUNDRY` (see [Identities](#identities) for why) and refuses to launch if any is present, unless the active identity has `allowAmbientCredential: true` in its `identity.json` or `CLAUDE_USE_ALLOW_AMBIENT_CREDENTIAL=1` is set for this one invocation. An empty string counts as unset for all six variables — this matters because clearing one of them with `export ANTHROPIC_API_KEY=""` (rather than `unset`), a real pattern in wrapper scripts that fall through to a different variable once the first is cleared, must not trip the guard:
 
 ```bash
 CLAUDE_USE_ALLOW_AMBIENT_CREDENTIAL=1 claude   # this run only
@@ -242,14 +244,14 @@ claude-use identity set <name> --allow-ambient-credential   # persistently, for 
 
 | What you're setting | Global (persistent) | Temporary (this run only) | Directory-scoped (persistent) |
 |---|---|---|---|
-| **Identity** | `claude-use identity use <name>` | `claude @<name>` / `CLAUDE_ACCOUNT=<name> claude` | `claude-use rules add <path> --identity <name>`; or `.claude-use.json`'s `"identity"` |
-| **Configuration profile** | `claude-use profile set-default <name>`; or `claude-use identity set-default-profile <identity> <profile>` | `claude --config-profile <name>` / `CLAUDE_USE_CONFIG_PROFILE=<name> claude` | `claude-use rules add <path> --profile <name>`; or `.claude-use.json`'s `"configProfile"` |
-| **A category** | `claude-use profile set <name> --category history=true`; or `claude-use configure <identity>` | `claude --category history=true[,knowledge=false,...]` / `CLAUDE_USE_CATEGORY_OVERRIDE="history=true,knowledge=false"` | `claude-use configure <identity>` run from inside the ruled directory; or `.claude-use.json`'s `"categories"` |
-| **An individual entry** | `claude-use profile set <name> --entry "path"=true`; or `claude-use configure <identity> <path>` | `claude --share <path>[,<path>,...]` / `claude --hide <path>[,<path>,...]` / `CLAUDE_USE_ENTRY_OVERRIDE="path=true,otherpath=false"` | `claude-use configure <identity> <path>` run from inside the ruled directory; or `.claude-use.json`'s `"entries"` |
+| **Identity** | `claude-use identity use <name>` (writes `~/.claude-use/active-identity`) | `claude @<name>` / `CLAUDE_ACCOUNT=<name> claude` | `claude-use rules add <path> --identity <name>`; or `.claude-use.json`'s `"identity"` |
+| **Configuration profile** | `claude-use profile set-default <name>`; or `claude-use identity set-default-profile <identity> <profile>` | `CLAUDE_USE_CONFIG_PROFILE=<name> claude` (no `--config-profile` flag on `claude` itself) | `claude-use rules add <path> --profile <name>`; or `.claude-use.json`'s `"configProfile"` |
+| **A category** | `claude-use profile set <name> --category history=true`; or `claude-use configure <identity>` | not supported for a single launch — `claude` itself takes no per-launch category override | `claude-use configure <identity>` run from inside the ruled directory; or `.claude-use.json`'s `"categories"` |
+| **An individual entry** | `claude-use profile set <name> --entry "path"=true`; or `claude-use configure <identity> <path>` | not supported for a single launch — `claude` itself takes no per-launch entry override | `claude-use configure <identity> <path>` run from inside the ruled directory; or `.claude-use.json`'s `"entries"` |
 | **Launch flags** | `claude-use profile set <name> [--skip-permissions] [--remote-control]` | `CLAUDE_USE_SKIP_PERMISSIONS=1 claude` / `CLAUDE_USE_REMOTE_CONTROL=1 claude` | rule's inline `"launch"` field; or `.claude-use.json`'s `"launch"` |
 | **Ambient-credential guard** | `claude-use identity set <name> --allow-ambient-credential` (per identity, in its `identity.json`) | `CLAUDE_USE_ALLOW_AMBIENT_CREDENTIAL=1 claude` | not applicable — this guard is about the active identity's own credential, not a directory context |
 
-The scriptable `claude-use profile set ...` commands exist alongside the interactive picker specifically so this is automatable — CI, setup scripts, or a `.claude-use.json` generator don't need to drive an interactive prompt. `--category`, `--entry`, `--share`, and `--hide` are all repeatable in one invocation (`claude --share <path> --share <path>`) and their env-var equivalents take a comma-separated list of `key=value` pairs, the same convention `--extends` already uses below — so temporarily sharing two paths at once, or setting two categories in one launch, doesn't need two separate invocations. `CLAUDE_EXTRA_FLAGS` (below) is the one exception: it's a single opaque string, split on whitespace before being appended to the real binary's argv — a flag value that itself needs an embedded space isn't expressible through it.
+The scriptable `claude-use profile set ...` commands exist alongside the interactive picker specifically so this is automatable — CI, setup scripts, or a `.claude-use.json` generator don't need to drive an interactive prompt. `claude-use profile set`'s `--category` and `--entry` options are each repeatable in one invocation (`claude-use profile set work --category history=true --category knowledge=false`) and each also accepts a comma-separated list of `<key>=<bool>` pairs in a single flag value, the same convention `claude-use profile create --extends <names>` uses for a comma-separated list of profile names — so setting several categories or entries on one profile doesn't need one invocation per key. `CLAUDE_EXTRA_FLAGS` (below) is a different thing entirely, a per-launch escape hatch on `claude` itself, not a `claude-use` adapter flag: it's a single opaque string, split on whitespace before being appended to the real binary's argv — a flag value that itself needs an embedded space isn't expressible through it.
 
 ### Full command list
 
@@ -391,33 +393,68 @@ One compiled binary backs both `claude` and `claude-use` — the entrypoint disp
 ```
 src/
   cli.ts                 # entrypoint; dispatches on invoked name -> launcher vs identity/profile-manager subcommands
-  launcher.ts             # `claude` behaviour: ambient-credential guard, resolve cascade for $PWD, resync farm, resolve launch flags, spawn real binary
+  paths.ts               # CLAUDE_USE_HOME-aware layout paths — every other module resolves ~/.claude-use/... paths through this, never inline
+  pathNorm.ts            # rule-path normalisation/ancestor helpers shared across the resolver and directory rules
+  exit.ts                # exit code constants
+  versionDiscovery.ts     # portable "find the real claude binary" logic
+  realPorts.ts            # the real filesystem/spawn/proc/clock/git ports wired into runLauncher by cli.ts (tests wire fakes instead)
+  launcher.ts             # runLauncher: thin orchestration over launcher/* below
+  launcher/
+    ports.ts              # FsPort, SpawnPort, RunPort, ClockPort, ProcPort, LogPort, FarmFs — injected, fakeable
+    argv.ts               # parseLauncherArgv — @name consumed only at argv[0]
+    guard.ts              # the ambient-credential guard — six guarded vars, empty string counts as unset
+    identity.ts           # decideIdentity, decideConfigProfile, loadIdentity
+    flags.ts              # resolveLaunchFlags, buildFlagArgs, buildArgv, buildEnv
+    extraFlags.ts         # splitExtraFlags for $CLAUDE_EXTRA_FLAGS
+    cascade.ts            # loads and assembles the CascadeInput a real launch needs (profiles, directory rules, .claude-use.json)
+    lock.ts               # per-identity resync lock
+    farm.ts               # farm resync: plan -> build scratch -> reconcile/carry-over -> atomic swap -> crash recovery
+    spawn.ts              # spawnClaude — spawns the real binary, propagates its exit code
   identityManager.ts      # `claude-use identity` subcommands
   configProfiles.ts       # `claude-use profile` subcommands (scriptable set/set-default alongside `create`/`list`)
   directoryRules.ts       # `claude-use rules` subcommands
-  configure.ts            # interactive picker
+  configure.ts            # `claude-use configure` interactive picker (@clack/prompts)
   check.ts                # `claude-use check` dry-run inspector — cascade resolution, ambient-credential/Keychain/settings-secrets diagnostics — no farm writes, no spawn
-  resolve.ts              # pure cascade resolver — categories, path overrides, configuration profiles, directory rules,
-                           # committed .claude-use.json / .claude-use.local.json discovery. The unit-tested core.
-  versionDiscovery.ts     # portable "find the real claude binary" logic
+  cli/
+    parsers.ts            # shared CLI-flag parsing helpers (splitTopLevelCommas, parsePair, repeatable-flag collectors)
+  resolve.ts              # public facade re-exporting the resolver below — nothing outside src/resolve/ imports its internals directly
+  resolve/
+    types.ts              # every resolver type
+    match.ts              # canonicaliseEntryKey, compileMatcher, compareSpecificity
+    projects.ts            # forward-only ~/.claude/projects/ path encoder — no decoder exists
+    conditions.ts          # parseDuration, evaluateWhen, matchBranch
+    flatten.ts             # phase one: shallow overwrite per identical canonical key
+    decide.ts              # phase two: selectRule, resolveEntry, resolveAll
+    extends.ts             # profile extends-chain linearisation (cycle guard + diamond de-dup, post-order emission)
+    walk.ts                # directory-ancestor walk + three-source (.claude-use.json / directory-rules.json / .claude-use.local.json) fold
+    plan.ts                # materialise-vs-symlink planning
+    reconcile.ts           # pure write-through reconciliation planning
   config/
     schema.ts             # Zod schemas: CategoryMap, ConfigProfile, DirectoryRules, GlobalConfig, Identity — single source of truth
     load.ts                # cosmiconfig load(filepath) wrapper (format-flexible parsing) + Zod validation
+    classify.ts            # categories.default.json + categories.local.json + real entry names -> Classification
+    store.ts               # readJson, writeJsonAtomic, applyPatch — shared by every CLI adapter
     categories.default.json
-    directory-rules.example.json
-resolve.test.ts + friends  # unit tests for the resolver
-schema/                    # published JSON Schemas for IDE autocomplete
-sea-config.json            # Node SEA build config
+*.test.ts                  # every module above ships with a colocated test file
+schema/                    # published JSON Schemas, generated by `pnpm schema` and stamped with a release-pinned $id at publish time
+sea-config.json            # generated by scripts/build.mts, not hand-maintained
 package.json / tsconfig.json
-scripts/build.ts           # esbuild bundle -> single CJS file -> node --experimental-sea-config -> postject inject
+scripts/
+  build.mts                # esbuild bundle -> node --build-sea=<config> (see Build (Node SEA) below)
+  gen-schema.mts            # z.toJSONSchema() per exported schema -> schema/*.schema.json
+  gen-schema-core.ts        # shared schema-generation logic used by gen-schema.mts
+  stamp-schema-ids.mjs      # rewrites $id to the real version-pinned release URL at publish time
+.github/workflows/
+  ci.yml                    # typecheck, test, and a `pnpm schema && git diff --exit-code schema/` drift guard
+  release.yml               # tag-triggered build (arm64 verified + x64 best-effort) and GitHub Release publish
 install.sh                 # places built binaries as `claude` and `claude-use` in ~/.local/bin
 ```
 
-`schema.ts` models `categories` and `entries` differently despite their identical JSON-object appearance in every example above, because they have opposite key cardinality: `categories` only ever touches the five fixed names in the [category table](#category-based-sharing), so it's a closed `z.object({ runtime: z.boolean().optional(), history: z.boolean().optional(), knowledge: z.boolean().optional(), settings: z.boolean().optional() }).strict()` — deliberately omitting `secret` from the shape entirely, so an attempted `secret` key is rejected at parse time rather than relying only on the runtime check described above — while `entries` is genuinely open-ended (any literal or glob path) and stays a `z.record(z.string(), EntryValueSchema)`. The closed shape for `categories` also gives editors real key-name autocomplete from the published JSON Schema (the `schema/` directory above), which a record type can't offer.
+`schema.ts` models `categories` and `entries` differently despite their identical JSON-object appearance in every example above, because they have opposite key cardinality: `categories` only ever touches the four overridable names in the [category table](#category-based-sharing), so it's a closed `z.strictObject({ runtime: z.boolean().optional(), history: z.boolean().optional(), knowledge: z.boolean().optional(), settings: z.boolean().optional() })` — deliberately omitting `secret` from the shape entirely, so an attempted `secret` key is rejected at parse time rather than relying only on the runtime check described above — while `entries` is genuinely open-ended (any literal or glob path, each required to carry its `<category>/` prefix per the [Category-based sharing](#category-based-sharing) section above) and stays a `z.record(z.string().regex(ENTRY_KEY_RE), EntryValueSchema)`. The closed shape for `categories` also gives editors real key-name autocomplete from the published JSON Schema (the `schema/` directory above), which a record type can't offer.
 
 `ConfigProfile.extends` is a flat `z.array(z.string()).optional()` — a list of other profiles' *names*, resolved by `resolve.ts` loading each named file and walking the resulting graph at runtime. It's correctly **not** a self-referential Zod schema (no `z.lazy()` needed): nothing in `ConfigProfile`'s own shape points back at `ConfigProfile`. Because each profile file validates in isolation, though, Zod has no way to catch a circular `extends` definition (`a` extends `b` extends `a`) — the walker in `resolve.ts` needs its own cycle guard (a visited-set), independent of schema validation.
 
-The `when` condition object's `env` field is `z.record(z.string(), z.string())` — zero or more named environment-variable checks, ANDed together within the same `when` object exactly like every other condition, rather than a single fixed `{ name, value }` pair (which would need `when` itself to become an array to check more than one variable, a shape nothing else in this design uses).
+The `when` condition object's `env` field is `z.record(z.string().min(1), z.string()).optional()` — zero or more named environment-variable checks, ANDed together within the same `when` object exactly like every other condition, rather than a single fixed `{ name, value }` pair (which would need `when` itself to become an array to check more than one variable, a shape nothing else in this design uses).
 
 ### Why config file loading uses cosmiconfig's `load()`, never its `search()`
 
@@ -441,7 +478,11 @@ The reverse direction matters just as much: a directory materialised because of 
 
 ### Build (Node SEA)
 
-Bundle `src/cli.ts` to a single file with esbuild, generate the SEA blob with `node --experimental-sea-config`, then inject it into a copy of the Node binary with `postject`. Confirm the exact current steps against up-to-date Node documentation before implementing — the SEA feature is still evolving between Node releases. Initial target platforms are macOS arm64 and x64, built in CI on tag push and published as GitHub Release assets; add others only if actually needed.
+`scripts/build.mts` bundles `src/cli.ts` to a single CJS file with esbuild, writes a `sea-config.json` next to it, then invokes the now-stable single command `node --build-sea=sea-config.json` — this one step handles the bundle copy, signature removal, blob injection, and re-signing that used to require chaining `--experimental-sea-config` with a separate `postject` invocation, and `postject` is not a dependency of this project. On macOS the resulting binary is re-signed with an ad-hoc signature (`codesign --sign -`) afterwards, since blob injection invalidates the original one. `--build-sea` requires Node ≥ v25.5.0, the version it stabilised in; the build script checks the running Node version up front and refuses with a clear error rather than failing deep inside the SEA step if it's older.
+
+One gotcha worth knowing before reaching for this: **Homebrew's macOS Node build has the single-executable-application feature compiled out.** Running the build against a Homebrew-installed Node fails partway through with "Single executable application is disabled" — `scripts/build.mts` detects this specific error and rewrites it into an explanation naming the cause, rather than leaving a contributor to debug an opaque native error. Use a Node binary from a distribution that ships SEA support instead — the official nodejs.org build, or a version manager installing upstream builds (mise, nvm, volta, fnm) — ahead of Homebrew's on `PATH`.
+
+macOS SEA support is tested and verified upstream on **arm64 only** — x64 is explicitly unsupported and skipped in Node core's own test suite. CI builds and publishes the arm64 binary as the verified release artefact; it also attempts an x64 build as a clearly-labelled best-effort convenience (allowed to fail without blocking the release, and published as `claude-use-macos-x64-unverified` when it succeeds), never presented as a supported target.
 
 The published JSON Schemas under `schema/` should self-reference (and, if ever submitted to a public schema catalog, be registered) via a **version-pinned** GitHub Release asset URL — `releases/download/<tag>/<file>` — never a live branch reference, which silently changes underneath every consumer on every push with no way to pin a version. This is deliberately a different URL form from [installing the binaries](#install)'s own `releases/latest/download/...`: the installer *wants* the newest release every time, but a schema an editor references long-term needs to stay stable at whatever version a given config file was written against, not shift underfoot on every future release.
 
@@ -464,6 +505,18 @@ The published JSON Schemas under `schema/` should self-reference (and, if ever s
 `identityManager.ts`, `configProfiles.ts`, `directoryRules.ts`, and `configure.ts` stay thin adapters over `resolve.ts`, so most of their correctness rides on the resolver's own test coverage above. `launcher.ts` carries three separately-testable responsibilities of its own that aren't covered by `resolve.ts`'s purity, and need their own coverage: translating a resolved `Map<path, boolean>` into real filesystem side effects (creating/removing symlinks, materialising/collapsing directories, diffing against the farm's prior state, the per-identity lock and atomic-swap behaviour from [Directory rules](#directory-rules)) against a fake/in-memory filesystem; invoking the real `claude` binary via an injected `spawn` function (argv/env construction, exit-code propagation), never a real subprocess in a unit test; and the ambient-credential guard — given a fake `process.env`, refusing to proceed when any of the six named variables is set and the active identity's `allowAmbientCredential` is unset/false, proceeding when it's true, and proceeding when `CLAUDE_USE_ALLOW_AMBIENT_CREDENTIAL=1` is set for that one call regardless of the identity's own setting.
 
 `check.ts`'s three always-on diagnostics get their own tests too, independent of path/cascade resolution: the ambient-credential check against a fake `process.env` (same fixture as `launcher.ts`'s guard, since they share the same detection logic); the settings-secrets advisory against a fake settings.json with populated `env`/`hooks` fields, confirming it reports counts and key names only, never values; and — since Keychain access is real OS state, not something to fake — a manual/integration-only note that the Keychain-name lookup is exercised against a real `security` call in CI on macOS runners, not unit-tested with a mock.
+
+## Development
+
+```bash
+pnpm install     # install dependencies
+pnpm typecheck   # tsc --noEmit
+pnpm test        # vitest run
+pnpm build       # bundle src/cli.ts with esbuild, then node --build-sea= (see Build (Node SEA) above) — needs Node >= v25.5.0 with SEA support (not Homebrew's build, see the gotcha above)
+pnpm schema      # regenerate schema/*.schema.json from src/config/schema.ts; CI fails if this drifts from what's committed
+```
+
+Every test run gets `CLAUDE_USE_HOME` set to a throwaway directory by `vitest.config.mts`, and a Vitest setup file (`src/test-setup.ts`) refuses to let any test run at all if that variable is unset or resolves to the real `~/.claude-use` — there is no path by which the test suite can touch a real identity. A farm test that also needs a canonical `~/.claude` to resync against injects its own fake filesystem port rather than touching a real path. Manual, non-test exploration of a locally built binary should follow the same discipline: export `CLAUDE_USE_HOME` (and, if exercising a real farm resync, `CLAUDE_USE_CLAUDE_HOME`) to point at scratch directories, never at your own real identities.
 
 ## Contributing
 
