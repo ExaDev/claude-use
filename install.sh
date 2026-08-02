@@ -4,17 +4,42 @@ set -eu
 # Downloads the latest GitHub Release SEA binary for the running platform and installs it as `claude-use` in ~/.local/bin (or $CLAUDE_USE_INSTALL_DIR, if set). That's the only thing this script ever does to your PATH -- it never touches the `claude` command. `claude-use run [args...]` reaches the exact same launcher pipeline a `claude`-named binary would, so nothing further is needed to use every feature this tool has. If you'd also like the shorter `claude @<name>` form, run `claude-use shim enable` yourself afterward -- an explicit, separate, reversible step (`claude-use shim disable` undoes it), not something installation does for you.
 #
 # macOS and Linux only: this is a POSIX shell script, and Windows has no `sh` to pipe it into. Windows users get the same two commands via Scoop instead — see the README's Install section.
+#
+# One exception to "downloads a self-contained SEA binary": macOS x64's SEA binary segfaults on every invocation, a known and deliberately unfixed upstream Node bug (see https://github.com/ExaDev/claude-use#build-node-sea for the confirmed root cause and citations). This script installs via npm instead on that one architecture, matching the Homebrew formula's own workaround for the same problem -- which means it needs Node.js already available there, unlike every other platform/architecture this script supports.
 
 repo="ExaDev/claude-use"
 
+install_dir="${CLAUDE_USE_INSTALL_DIR:-$HOME/.local/bin}"
+mkdir -p "$install_dir"
+target="$install_dir/claude-use"
+
 os=$(uname -s)
 arch=$(uname -m)
+
+if [ "$os" = "Darwin" ] && [ "$arch" = "x86_64" ]; then
+  if ! command -v npm >/dev/null 2>&1; then
+    echo "error: claude-use's macOS x64 binary is currently broken (a known, unfixed upstream Node bug -- see https://github.com/ExaDev/claude-use#build-node-sea)." >&2
+    echo "Install Node.js first (nodejs.org, or a version manager), then re-run this script -- or use Homebrew instead, which handles this automatically:" >&2
+    echo "  brew install ExaDev/claude-use/claude-use" >&2
+    exit 1
+  fi
+  npm_prefix=$(mktemp -d)
+  trap 'rm -rf "$npm_prefix"' EXIT
+  echo "macOS x64's SEA binary is currently broken upstream (see https://github.com/ExaDev/claude-use#build-node-sea) -- installing via npm instead..."
+  npm install --global --silent --no-fund --no-audit --prefix="$npm_prefix" claude-use
+  rm -f "$target"
+  cp -L "$npm_prefix/bin/claude-use" "$target"
+  chmod +x "$target"
+  echo "installed $target"
+  echo
+  echo "Want a \`claude\` command too? Run: $target shim enable"
+  exit 0
+fi
 
 case "$os" in
   Darwin)
     case "$arch" in
       arm64) asset="claude-use-macos-arm64" ;;
-      x86_64) asset="claude-use-macos-x64-unverified" ;;
       *) echo "error: unsupported macOS architecture '$arch'" >&2; exit 1 ;;
     esac
     ;;
@@ -57,10 +82,6 @@ fi
 
 chmod +x "$tmp_dir/$asset"
 
-install_dir="${CLAUDE_USE_INSTALL_DIR:-$HOME/.local/bin}"
-mkdir -p "$install_dir"
-
-target="$install_dir/claude-use"
 rm -f "$target"
 if ln "$tmp_dir/$asset" "$target" 2>/dev/null; then
   :

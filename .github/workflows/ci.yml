@@ -901,29 +901,20 @@ jobs:
             exit 1
           fi
 
-  # See verify-tap-macos-x64's own comment for why this is continue-on-error too: v0.2.7 confirmed claude-use --version itself segfaults on this platform, the exact crash the build job's own smoke test silently swallows via `|| true` -- a real, visible, but non-blocking failure mode for this specific best-effort platform, not necessarily a bug in our own install.sh/shim code.
+  # macOS x64's SEA binary segfaults on every invocation (a known, unfixed upstream Node bug -- see README.md's "Build (Node SEA)" section) so install.sh gives that one architecture a genuinely different path: npm install into a scratch prefix, then copy the resulting bin script into place, matching the Homebrew formula's own workaround. needs publish-npm (not just release) since it installs whatever npm currently resolves as @latest for the claude-use package -- running before that publish completes would install a stale, previously-published version and fail the tag-match check below for an unrelated reason.
   verify-install-script-macos-x64:
     name: Verify install.sh (macOS x64)
     if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
-    needs: [release]
+    needs: [release, publish-npm]
     runs-on: macos-15-intel
-    continue-on-error: true
     steps:
-      - name: Check whether the macOS x64 asset was published for this release
-        id: asset-check
-        run: |
-          url="https://github.com/ExaDev/claude-use/releases/download/${GITHUB_REF_NAME}/claude-use-macos-x64-unverified.sha256"
-          status=$(curl -s -o /dev/null -w "%{http_code}" -L "$url")
-          echo "exists=$([ "$status" = "200" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
       - name: Download and run install.sh into a scratch directory
-        if: steps.asset-check.outputs.exists == 'true'
         run: |
           scratch_dir="$RUNNER_TEMP/claude-use-install-test"
           mkdir -p "$scratch_dir"
           CLAUDE_USE_INSTALL_DIR="$scratch_dir" sh -c "$(curl -fsSL "https://github.com/ExaDev/claude-use/releases/download/${GITHUB_REF_NAME}/install.sh")"
           echo "$scratch_dir" >> "$GITHUB_PATH"
       - name: Check installed version matches the tag, and that claude is not installed by default
-        if: steps.asset-check.outputs.exists == 'true'
         run: |
           expected="${GITHUB_REF_NAME#v}"
           installed=$(claude-use --version)
@@ -937,7 +928,6 @@ jobs:
             exit 1
           fi
       - name: shim enable/disable round-trip
-        if: steps.asset-check.outputs.exists == 'true'
         run: |
           claude-use shim enable
           # This runner has no real downstream Claude Code install, so invoking `claude` -- which always forwards straight into the launcher pipeline, never special-casing --version -- deterministically fails at binary discovery. That failure is itself the proof the shim file exists, is executable, and correctly dispatches into the launcher rather than crashing for some unrelated reason.
