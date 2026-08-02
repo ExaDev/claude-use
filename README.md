@@ -49,7 +49,7 @@ scoop bucket add claude-use https://github.com/ExaDev/scoop-claude-use
 scoop install claude-use
 ```
 
-Every channel installs `claude-use` alone — none of them install a `claude` command; `claude-use shim enable` is the one explicit action that does, on any of them. The GitHub Release binary, Homebrew, and Scoop all ship the self-contained Node SEA build (no Node.js installation required) — macOS arm64, both Linux architectures, and Windows x64 are all targets Node core itself tests and verifies `--build-sea` against upstream; macOS x64 is published best-effort, since Node core does not test or verify single-executable-application support on that target. npm ships the plain bundle, running under whatever Node ≥ 22.12 you already have.
+Every channel installs `claude-use` alone — none of them install a `claude` command; `claude-use shim enable` is the one explicit action that does, on any of them. The GitHub Release binary, Homebrew, and Scoop all ship the self-contained Node SEA build (no Node.js installation required) — macOS arm64, both Linux architectures, and both Windows architectures are all targets Node core itself tests and verifies `--build-sea` against upstream; macOS x64 is published best-effort, since Node core does not test or verify single-executable-application support on that target. npm ships the plain bundle, running under whatever Node ≥ 22.12 you already have.
 
 ## Quick start
 
@@ -525,7 +525,7 @@ The reverse direction matters just as much: a directory materialised because of 
 
 One gotcha worth knowing before reaching for this: **Homebrew's macOS Node build has the single-executable-application feature compiled out.** Running the build against a Homebrew-installed Node fails partway through with "Single executable application is disabled" — `scripts/build.mts` detects this specific error and rewrites it into an explanation naming the cause, rather than leaving a contributor to debug an opaque native error. Use a Node binary from a distribution that ships SEA support instead — the official nodejs.org build, or a version manager installing upstream builds (mise, nvm, volta, fnm) — ahead of Homebrew's on `PATH`.
 
-macOS SEA support is tested and verified upstream on **arm64 only** — x64 is explicitly unsupported and skipped in Node core's own test suite. CI builds and publishes the arm64 binary as the verified release artefact; it also attempts an x64 build as a clearly-labelled best-effort convenience (allowed to fail without blocking the release, and published as `claude-use-macos-x64-unverified` when it succeeds), never presented as a supported target.
+macOS SEA support is tested and verified upstream on **arm64 only** — x64 is explicitly unsupported and skipped in Node core's own test suite. CI builds and publishes the arm64 binary as the verified release artefact; it also attempts an x64 build as a clearly-labelled best-effort convenience (allowed to fail without blocking the release, and published as `claude-use-macos-x64-unverified` when it succeeds), never presented as a supported target. Windows and Linux carry no such carve-out — Node's own SEA documentation tests both regularly across every architecture it supports on those platforms (x64 and arm64 alike), so CI builds and verifies all four of those binaries as fully supported release artefacts, same as macOS arm64.
 
 ### Publishing to npm
 
