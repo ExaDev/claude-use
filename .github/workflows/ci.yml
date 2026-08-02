@@ -362,7 +362,7 @@ jobs:
   update-tap:
     name: Update Homebrew tap
     if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
-    needs: [release, build-arm64, build-x64-best-effort, build-linux-x64, build-linux-arm64]
+    needs: [release, build-arm64, build-linux-x64, build-linux-arm64, publish-npm]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout tap via SSH deploy key
@@ -376,6 +376,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           TAG_URL="https://github.com/ExaDev/claude-use/releases/download/${TAG}"
+          VERSION="${TAG#v}"
           # --fail makes curl exit non-zero on 4xx/5xx so an error page's body never gets parsed as a checksum; --retry covers the small propagation window between the release job returning success and the asset being downloadable from the CDN. The regex validates what curl returned really is a 64-char lowercase hex digest before it goes anywhere near the generated formula.
           fetch_sha() {
             local name="$1" out="$2"
@@ -387,9 +388,17 @@ jobs:
             fi
           }
           fetch_sha claude-use-macos-arm64 sha-macos-arm64
-          fetch_sha claude-use-macos-x64-unverified sha-macos-x64
           fetch_sha claude-use-linux-x64 sha-linux-x64
           fetch_sha claude-use-linux-arm64 sha-linux-arm64
+
+          # macOS x64's SEA binary segfaults on every invocation (a known, unfixed upstream Node bug -- see README.md's "Build (Node SEA)" section) so the formula installs via npm + a Homebrew-managed Node instead for that one architecture, same as this project's own npm channel. The npm registry has no published sidecar checksum, so this hashes the downloaded tarball itself -- and can take longer than GitHub's release CDN to start serving a version right after npm publish returns success, matching verify-npm's own retry budget for the identical propagation-delay reason.
+          curl -sL --fail --retry 12 --retry-delay 8 --retry-all-errors \
+            -o npm-package.tgz "https://registry.npmjs.org/claude-use/-/claude-use-${VERSION}.tgz"
+          shasum -a 256 npm-package.tgz | awk '{print $1}' > sha-npm-tarball
+          if ! [[ "$(cat sha-npm-tarball)" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::checksum for npm tarball not a 64-char hex digest: $(cat sha-npm-tarball)"
+            exit 1
+          fi
 
       - name: Generate formula
         env:
@@ -397,7 +406,7 @@ jobs:
         run: |
           VERSION="${TAG#v}"
           MACOS_ARM_SHA=$(cat sha-macos-arm64)
-          MACOS_X64_SHA=$(cat sha-macos-x64)
+          NPM_TARBALL_SHA=$(cat sha-npm-tarball)
           LINUX_X64_SHA=$(cat sha-linux-x64)
           LINUX_ARM_SHA=$(cat sha-linux-arm64)
           mkdir -p Formula
@@ -415,8 +424,10 @@ jobs:
                 sha256 "${MACOS_ARM_SHA}"
               end
               on_intel do
-                url "https://github.com/ExaDev/claude-use/releases/download/${TAG}/claude-use-macos-x64-unverified"
-                sha256 "${MACOS_X64_SHA}"
+                # The SEA binary segfaults on every invocation on real x64 macOS hardware -- a known, unfixed upstream Node bug (see README.md's "Build (Node SEA)" section for the full writeup and citations). Installs via npm + a Homebrew-managed Node instead, same code this project already publishes and verifies on the npm channel, on every other platform.
+                url "https://registry.npmjs.org/claude-use/-/claude-use-${VERSION}.tgz"
+                sha256 "${NPM_TARBALL_SHA}"
+                depends_on "node"
               end
             end
 
@@ -432,9 +443,14 @@ jobs:
             end
 
             def install
-              downloaded = Dir["claude-use-*"].first
-              bin.install downloaded => "claude-use"
-              chmod 0755, bin/"claude-use"
+              if OS.mac? && Hardware::CPU.intel?
+                system "npm", "install", *std_npm_args
+                bin.install_symlink libexec.glob("bin/*")
+              else
+                downloaded = Dir["claude-use-*"].first
+                bin.install downloaded => "claude-use"
+                chmod 0755, bin/"claude-use"
+              end
             end
 
             def caveats
@@ -585,27 +601,18 @@ jobs:
             exit 1
           fi
 
-  # The macOS x64 asset is best-effort (build-x64-best-effort is continue-on-error) since Node core doesn't test SEA support on that target -- but once a binary genuinely exists, installing and running it exercises this project's OWN code (shim placement, the Homebrew formula), which deserves the same real verification as every other channel. The asset-existence check below absorbs "the best-effort build didn't produce anything this release" as a distinct, expected outcome. continue-on-error here too, though, unlike every other verify job: v0.2.7 confirmed `claude-use --version` itself segfaults on this platform (exit 139) -- the exact same crash the build job's own `--help || true` smoke test silently swallows -- meaning failure here can be Node's own SEA feature being genuinely broken on x64 macOS before any of our own code even runs, not necessarily a bug we control. This job still runs and still reports red in the Actions UI on failure (visible, not silenced) -- continue-on-error only stops that redness from blocking the pipeline, matching the build job's own tolerance for this specific platform.
+  # macOS x64's Node SEA binary segfaults on every invocation (a known, unfixed upstream Node bug -- see README.md's "Build (Node SEA)" section) so the Homebrew formula installs via npm + a Homebrew-managed Node for this one architecture instead (see update-tap's own Generate formula step) -- the same code this project already publishes and verifies on the npm channel elsewhere, not the broken SEA binary. That makes this a normal, blocking verify job like every other channel: a failure here is a real bug in this project's own npm-wrapped formula, not Node's upstream SEA limitation.
   verify-tap-macos-x64:
     name: Verify Homebrew install (macOS x64)
     if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
     needs: [release, update-tap]
     runs-on: macos-15-intel
-    continue-on-error: true
     steps:
-      - name: Check whether the macOS x64 asset was published for this release
-        id: asset-check
-        run: |
-          url="https://github.com/ExaDev/claude-use/releases/download/${GITHUB_REF_NAME}/claude-use-macos-x64-unverified.sha256"
-          status=$(curl -s -o /dev/null -w "%{http_code}" -L "$url")
-          echo "exists=$([ "$status" = "200" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
       - name: Tap and install
-        if: steps.asset-check.outputs.exists == 'true'
         run: |
           brew tap ExaDev/claude-use
           brew install ExaDev/claude-use/claude-use
       - name: Check installed version matches the tag
-        if: steps.asset-check.outputs.exists == 'true'
         run: |
           claude-use --version
           INSTALLED=$(claude-use --version)
@@ -615,14 +622,12 @@ jobs:
             exit 1
           fi
       - name: Confirm claude is not installed by default
-        if: steps.asset-check.outputs.exists == 'true'
         run: |
           if command -v claude >/dev/null 2>&1; then
             echo "error: 'claude' should not be on PATH after a fresh install -- found $(command -v claude)"
             exit 1
           fi
       - name: shim enable/disable round-trip
-        if: steps.asset-check.outputs.exists == 'true'
         run: |
           claude-use shim enable
           # This runner has no real downstream Claude Code install, so invoking `claude` -- which always forwards straight into the launcher pipeline, never special-casing --version -- deterministically fails at binary discovery. That failure is itself the proof the shim file exists, is executable, and correctly dispatches into the launcher rather than crashing for some unrelated reason.
