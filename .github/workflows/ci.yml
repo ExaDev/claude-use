@@ -36,13 +36,12 @@ jobs:
 
   # Everything below this point is the release pipeline, gated to tag pushes only ("v*") — the jobs above already validate every ordinary push and PR, so a tag push is the only time this project builds five platform binaries, publishes npm, and updates two external tap repos.
 
-  # macOS arm64 is the only target Node core itself tests and verifies `--build-sea` against upstream. This job's binary is the one this project actually stands behind. Runs on a self-hosted M3 Mac rather than a GitHub-hosted macos-* image: macos-14 (this job's previous runner) is already deprecated upstream, and macos-13 (the x64 job's previous runner, below) has already been removed outright — GitHub-hosted macOS images churn fast enough that depending on one is a recurring maintenance burden this project doesn't need to keep paying.
+  # macOS arm64 is the only target Node core itself tests and verifies `--build-sea` against upstream. This job's binary is the one this project actually stands behind. Runs on GitHub's standard hosted `macos-latest` (Apple Silicon by default) -- this repo is public, so standard hosted runners are free and unmetered on every plan, and GitHub manages the rolling image migration this label implies, so there's no version-pinned image for this project to keep bumping as older ones deprecate.
   build-arm64:
     name: Build (macOS arm64, verified)
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [check]
-    runs-on: [self-hosted, m3-macbook]
-    # Self-hosted runners queue indefinitely rather than failing cleanly if the machine is offline/asleep -- exactly the silent-hang failure mode macos-13's removal caused before. A timeout turns that into a clear, actionable failure instead.
+    runs-on: macos-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -67,12 +66,12 @@ jobs:
             dist/claude-use-macos-arm64.sha256
           retention-days: 7
 
-  # x64 is explicitly NOT part of Node core's own SEA test matrix (confirmed against current Node.js docs — see scripts/build.mts's own header comment). This job attempts the same build on an Intel runner as a best-effort convenience for x64 users, but nothing here proves the resulting binary is supported or even fully functional upstream — only that the build command itself completed and the smoke test below ran without crashing. It is published labelled as unverified, and this job is allowed to fail without blocking the release below. Runs on a self-hosted Intel Mac mini: GitHub removed macos-13 (this job's previous runner) outright, and every remaining GitHub-hosted Intel macOS label is now a paid large-runner tier.
+  # x64 is explicitly NOT part of Node core's own SEA test matrix (confirmed against current Node.js docs — see scripts/build.mts's own header comment). This job attempts the same build on an Intel runner as a best-effort convenience for x64 users, but nothing here proves the resulting binary is supported or even fully functional upstream — only that the build command itself completed and the smoke test below ran without crashing. It is published labelled as unverified, and this job is allowed to fail without blocking the release below. Runs on GitHub's standard hosted `macos-15-intel` -- free for this public repo like every other standard runner, and GitHub's own supported x64 macOS label through August 2027, after which x86_64 support ends entirely on GitHub Actions.
   build-x64-best-effort:
     name: Build (macOS x64, best-effort, unverified)
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [check]
-    runs-on: [self-hosted, intel-mac-mini]
+    runs-on: macos-15-intel
     continue-on-error: true
     timeout-minutes: 15
     steps:
@@ -193,6 +192,41 @@ jobs:
             dist/claude-use-windows-x64.zip.sha256
           retention-days: 7
 
+  # Node's own SEA docs list Windows as regularly tested without the x64-only carve-out that explicitly excludes macOS x64 above -- Windows arm64 is a fully verified target from day one, not a best-effort one. windows-11-arm is GitHub's standard hosted Windows-on-Arm runner, generally available and free for this public repo like every other standard runner.
+  build-windows-arm64:
+    name: Build (Windows arm64, verified)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check]
+    runs-on: windows-11-arm
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "26.5.0"
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Package archive
+        shell: pwsh
+        run: |
+          Copy-Item dist/claude-use-sea.exe dist/claude-use.exe
+          Compress-Archive -Path dist/claude-use.exe -DestinationPath dist/claude-use-windows-arm64.zip
+          $hash = (Get-FileHash -Algorithm SHA256 dist/claude-use-windows-arm64.zip).Hash.ToLower()
+          $hash | Out-File -Encoding ascii -NoNewline dist/claude-use-windows-arm64.zip.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: claude-use-windows-arm64
+          path: |
+            dist/claude-use-windows-arm64.zip
+            dist/claude-use-windows-arm64.zip.sha256
+          retention-days: 7
+
   # Publishes the plain esbuild bundle (not a SEA binary — the npm-installed package runs under whatever Node the installer already has) as the `claude-use` npm package, so `npx claude-use` and `npm install -g claude-use` work alongside the GitHub Release binaries above. Uses npm's OIDC trusted publishing, the same pattern this org's other published packages use — no NPM_TOKEN secret. Trusted publishing itself is configured once, out of band, on the package's own npmjs.com settings page (linking this exact repo/workflow as an authorised publisher); nothing in this workflow can set that up.
   publish-npm:
     name: Publish npm package
@@ -236,8 +270,9 @@ jobs:
       needs.build-arm64.result == 'success' &&
       needs.build-linux-x64.result == 'success' &&
       needs.build-linux-arm64.result == 'success' &&
-      needs.build-windows-x64.result == 'success'
-    needs: [build-arm64, build-x64-best-effort, build-linux-x64, build-linux-arm64, build-windows-x64]
+      needs.build-windows-x64.result == 'success' &&
+      needs.build-windows-arm64.result == 'success'
+    needs: [build-arm64, build-x64-best-effort, build-linux-x64, build-linux-arm64, build-windows-x64, build-windows-arm64]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -283,6 +318,11 @@ jobs:
           name: claude-use-windows-x64
           path: artifacts
 
+      - uses: actions/download-artifact@v8
+        with:
+          name: claude-use-windows-arm64
+          path: artifacts
+
       - name: List release assets
         run: ls -la artifacts/ schema/
 
@@ -299,6 +339,8 @@ jobs:
             artifacts/claude-use-linux-arm64.sha256
             artifacts/claude-use-windows-x64.zip
             artifacts/claude-use-windows-x64.zip.sha256
+            artifacts/claude-use-windows-arm64.zip
+            artifacts/claude-use-windows-arm64.zip.sha256
             install.sh
             schema/*.schema.json
           generate_release_notes: true
@@ -308,7 +350,7 @@ jobs:
             - **macOS arm64** (`claude-use-macos-arm64`): verified. Node core tests and supports `--build-sea` on this target.
             - **macOS x64** (`claude-use-macos-x64-unverified`): best-effort only. Node core does not test or verify single-executable-application support on x64 — this binary is provided for convenience, not as a supported target. If it's missing from this release, the best-effort build failed and was skipped rather than silently shipping a broken binary.
             - **Linux x64 / arm64** (`claude-use-linux-x64`, `claude-use-linux-arm64`): verified. Node core tests `--build-sea` on every Linux distribution it supports except Alpine, and every architecture except s390x.
-            - **Windows x64** (`claude-use-windows-x64.zip`): verified. Node core documents full Windows support for `--build-sea`.
+            - **Windows x64 / arm64** (`claude-use-windows-x64.zip`, `claude-use-windows-arm64.zip`): verified. Node core documents Windows support for `--build-sea` without the x64-only carve-out that applies to macOS.
             - **npm** (`npx claude-use` / `npm install -g claude-use`): the plain bundle, not a SEA binary — runs under whatever Node ≥ 22.12 you already have.
             - **Homebrew** (`brew install ExaDev/claude-use/claude-use`) and **Scoop** (`scoop install claude-use` after `scoop bucket add claude-use https://github.com/ExaDev/scoop-claude-use`) are updated automatically to this release by the jobs below.
         env:
@@ -419,7 +461,7 @@ jobs:
   update-scoop:
     name: Update Scoop bucket
     if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
-    needs: [release, build-windows-x64]
+    needs: [release, build-windows-x64, build-windows-arm64]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout bucket via SSH deploy key
@@ -428,7 +470,7 @@ jobs:
           repository: ExaDev/scoop-claude-use
           ssh-key: ${{ secrets.SCOOP_BUCKET_DEPLOY_KEY }}
 
-      - name: Download and validate checksum
+      - name: Download and validate checksums
         env:
           TAG: ${{ github.ref_name }}
         run: |
@@ -439,6 +481,12 @@ jobs:
             echo "::error::checksum for windows-x64 not a 64-char hex digest: $(cat sha-windows-x64)"
             exit 1
           fi
+          curl -sL --fail --retry 6 --retry-delay 5 --retry-all-errors \
+            "${TAG_URL}/claude-use-windows-arm64.zip.sha256" | awk '{print $1}' > sha-windows-arm64
+          if ! [[ "$(cat sha-windows-arm64)" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::checksum for windows-arm64 not a 64-char hex digest: $(cat sha-windows-arm64)"
+            exit 1
+          fi
 
       - name: Generate manifest
         env:
@@ -446,6 +494,7 @@ jobs:
         run: |
           VERSION="${TAG#v}"
           WINDOWS_SHA=$(cat sha-windows-x64)
+          WINDOWS_ARM_SHA=$(cat sha-windows-arm64)
           mkdir -p bucket
           cat > bucket/claude-use.json <<EOF
           {
@@ -457,6 +506,10 @@ jobs:
                   "64bit": {
                       "url": "https://github.com/ExaDev/claude-use/releases/download/${TAG}/claude-use-windows-x64.zip",
                       "hash": "${WINDOWS_SHA}"
+                  },
+                  "arm64": {
+                      "url": "https://github.com/ExaDev/claude-use/releases/download/${TAG}/claude-use-windows-arm64.zip",
+                      "hash": "${WINDOWS_ARM_SHA}"
                   }
               },
               "bin": "claude-use.exe",
@@ -467,6 +520,9 @@ jobs:
                   "architecture": {
                       "64bit": {
                           "url": "https://github.com/ExaDev/claude-use/releases/download/v\$version/claude-use-windows-x64.zip"
+                      },
+                      "arm64": {
+                          "url": "https://github.com/ExaDev/claude-use/releases/download/v\$version/claude-use-windows-arm64.zip"
                       }
                   }
               }
@@ -527,11 +583,72 @@ jobs:
             exit 1
           fi
 
-  verify-tap-linux:
-    name: Verify Homebrew install (Linux)
+  # The macOS x64 asset is best-effort (build-x64-best-effort is continue-on-error) since Node core doesn't test SEA support on that target -- but once a binary genuinely exists, installing and running it exercises this project's OWN code (shim placement, the Homebrew formula), which deserves the same real verification as every other channel. The asset-existence check below absorbs "the best-effort build didn't produce anything this release" as a distinct, expected outcome, not a verify failure -- so this job is not continue-on-error itself: anything past that gate failing is a real bug in our own code.
+  verify-tap-macos-x64:
+    name: Verify Homebrew install (macOS x64)
     if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
     needs: [release, update-tap]
-    runs-on: ubuntu-latest
+    runs-on: macos-15-intel
+    steps:
+      - name: Check whether the macOS x64 asset was published for this release
+        id: asset-check
+        run: |
+          url="https://github.com/ExaDev/claude-use/releases/download/${GITHUB_REF_NAME}/claude-use-macos-x64-unverified.sha256"
+          status=$(curl -s -o /dev/null -w "%{http_code}" -L "$url")
+          echo "exists=$([ "$status" = "200" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Tap and install
+        if: steps.asset-check.outputs.exists == 'true'
+        run: |
+          brew tap ExaDev/claude-use
+          brew install ExaDev/claude-use/claude-use
+      - name: Check installed version matches the tag
+        if: steps.asset-check.outputs.exists == 'true'
+        run: |
+          claude-use --version
+          INSTALLED=$(claude-use --version)
+          EXPECTED="${GITHUB_REF_NAME#v}"
+          if [ "$INSTALLED" != "$EXPECTED" ]; then
+            echo "version mismatch: installed=$INSTALLED expected=$EXPECTED"
+            exit 1
+          fi
+      - name: Confirm claude is not installed by default
+        if: steps.asset-check.outputs.exists == 'true'
+        run: |
+          if command -v claude >/dev/null 2>&1; then
+            echo "error: 'claude' should not be on PATH after a fresh install -- found $(command -v claude)"
+            exit 1
+          fi
+      - name: shim enable/disable round-trip
+        if: steps.asset-check.outputs.exists == 'true'
+        run: |
+          claude-use shim enable
+          # This runner has no real downstream Claude Code install, so invoking `claude` -- which always forwards straight into the launcher pipeline, never special-casing --version -- deterministically fails at binary discovery. That failure is itself the proof the shim file exists, is executable, and correctly dispatches into the launcher rather than crashing for some unrelated reason.
+          if claude --version 2>err.log; then
+            echo "error: 'claude' should not have found a downstream Claude Code binary in this CI environment"
+            exit 1
+          fi
+          if ! grep -qi "Could not find a claude binary" err.log; then
+            echo "error: 'claude' failed for an unexpected reason:"
+            cat err.log
+            exit 1
+          fi
+          claude-use shim disable
+          # bash caches a resolved command's path in its hash table the first time it's invoked in this shell session (here, by the `claude --version` call above) -- command -v/type check that cache before the filesystem, so without clearing it a just-deleted file can still be reported as found.
+          hash -r
+          if command -v claude >/dev/null 2>&1; then
+            echo "error: 'claude' should be gone after shim disable -- found $(command -v claude)"
+            exit 1
+          fi
+
+  verify-tap-linux:
+    name: Verify Homebrew install (Linux, ${{ matrix.os }})
+    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
+    needs: [release, update-tap]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Install Homebrew on Linux
         run: |
@@ -582,10 +699,14 @@ jobs:
           fi
 
   verify-scoop:
-    name: Verify Scoop install (Windows)
+    name: Verify Scoop install (${{ matrix.os }})
     if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
     needs: [release, update-scoop]
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
     steps:
       - name: Install Scoop
         shell: pwsh
@@ -650,7 +771,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
+        os: [macos-latest, ubuntu-latest, windows-latest, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Run via npx and check version
@@ -729,7 +850,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        os: [macos-latest, ubuntu-latest, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Download and run install.sh into a scratch directory
@@ -752,6 +873,62 @@ jobs:
             exit 1
           fi
       - name: shim enable/disable round-trip
+        run: |
+          claude-use shim enable
+          # This runner has no real downstream Claude Code install, so invoking `claude` -- which always forwards straight into the launcher pipeline, never special-casing --version -- deterministically fails at binary discovery. That failure is itself the proof the shim file exists, is executable, and correctly dispatches into the launcher rather than crashing for some unrelated reason.
+          if claude --version 2>err.log; then
+            echo "error: 'claude' should not have found a downstream Claude Code binary in this CI environment"
+            exit 1
+          fi
+          if ! grep -qi "Could not find a claude binary" err.log; then
+            echo "error: 'claude' failed for an unexpected reason:"
+            cat err.log
+            exit 1
+          fi
+          claude-use shim disable
+          # bash caches a resolved command's path in its hash table the first time it's invoked in this shell session (here, by the `claude --version` call above) -- command -v/type check that cache before the filesystem, so without clearing it a just-deleted file can still be reported as found.
+          hash -r
+          if command -v claude >/dev/null 2>&1; then
+            echo "error: 'claude' should be gone after shim disable -- found $(command -v claude)"
+            exit 1
+          fi
+
+  # See verify-tap-macos-x64's own comment: the macOS x64 asset is best-effort, so this job gates on its actual presence rather than assuming it, but is not itself continue-on-error once that gate passes -- a failure past it is a real bug in our own install.sh/shim code.
+  verify-install-script-macos-x64:
+    name: Verify install.sh (macOS x64)
+    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
+    needs: [release]
+    runs-on: macos-15-intel
+    steps:
+      - name: Check whether the macOS x64 asset was published for this release
+        id: asset-check
+        run: |
+          url="https://github.com/ExaDev/claude-use/releases/download/${GITHUB_REF_NAME}/claude-use-macos-x64-unverified.sha256"
+          status=$(curl -s -o /dev/null -w "%{http_code}" -L "$url")
+          echo "exists=$([ "$status" = "200" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - name: Download and run install.sh into a scratch directory
+        if: steps.asset-check.outputs.exists == 'true'
+        run: |
+          scratch_dir="$RUNNER_TEMP/claude-use-install-test"
+          mkdir -p "$scratch_dir"
+          CLAUDE_USE_INSTALL_DIR="$scratch_dir" sh -c "$(curl -fsSL "https://github.com/ExaDev/claude-use/releases/download/${GITHUB_REF_NAME}/install.sh")"
+          echo "$scratch_dir" >> "$GITHUB_PATH"
+      - name: Check installed version matches the tag, and that claude is not installed by default
+        if: steps.asset-check.outputs.exists == 'true'
+        run: |
+          expected="${GITHUB_REF_NAME#v}"
+          installed=$(claude-use --version)
+          echo "$installed"
+          if [ "$installed" != "$expected" ]; then
+            echo "version mismatch: installed=$installed expected=$expected"
+            exit 1
+          fi
+          if command -v claude >/dev/null 2>&1; then
+            echo "error: 'claude' should not be on PATH after a fresh install -- found $(command -v claude)"
+            exit 1
+          fi
+      - name: shim enable/disable round-trip
+        if: steps.asset-check.outputs.exists == 'true'
         run: |
           claude-use shim enable
           # This runner has no real downstream Claude Code install, so invoking `claude` -- which always forwards straight into the launcher pipeline, never special-casing --version -- deterministically fails at binary discovery. That failure is itself the proof the shim file exists, is executable, and correctly dispatches into the launcher rather than crashing for some unrelated reason.
