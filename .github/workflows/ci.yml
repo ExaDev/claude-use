@@ -5,6 +5,7 @@ on:
     branches: [main]
     tags: ["v*"]
   pull_request:
+  workflow_dispatch:
 
 # Cancel superseded runs on the same ref so a fresh push doesn't queue behind a stale one.
 concurrency:
@@ -34,19 +35,21 @@ jobs:
       - run: pnpm schema
       - run: git diff --exit-code schema/
 
-  # Runs on every push to main (not tag pushes -- github.ref is refs/tags/vX.Y.Z there, not refs/heads/main), after `check` passes. Determines whether the commits since the last tag warrant a new release by Conventional Commits type (see .releaserc.json: feat -> minor, fix/perf -> patch, a BREAKING CHANGE footer -> major), and if so, creates and pushes the next vX.Y.Z tag itself -- exactly what used to be a manual `git tag`/`git push` step earlier in this project's life, and exactly what actually triggers the whole build/publish/verify pipeline below. Deliberately configured to do ONLY version-decision + tagging + changelog generation: @semantic-release/npm runs with npmPublish: false (so it still bumps package.json's version and commits it, but never touches the npm registry), and @semantic-release/github is not loaded at all -- actual npm publishing (OIDC trusted publishing), GitHub Release creation (with this project's own multi-platform asset list and release notes body), and the Homebrew/Scoop tap updates all remain this project's own existing tag-triggered jobs below, completely unchanged.
+  # Runs on every push to main (not tag pushes -- github.ref is refs/tags/vX.Y.Z there, not refs/heads/main), after `check` passes. Determines whether the commits since the last tag warrant a new release by Conventional Commits type (see .releaserc.json: feat -> minor, fix/perf -> patch, a BREAKING CHANGE footer -> major), and if so, creates and pushes the next vX.Y.Z tag itself -- exactly what used to be a manual `git tag`/`git push` step earlier in this project's life. Deliberately configured to do ONLY version-decision + tagging + changelog generation: @semantic-release/npm runs with npmPublish: false (so it still bumps package.json's version and commits it, but never touches the npm registry), and @semantic-release/github is not loaded at all -- actual npm publishing (OIDC trusted publishing), GitHub Release creation (with this project's own multi-platform asset list and release notes body), and the Homebrew/Scoop tap updates all remain this project's own existing tag-triggered jobs below, completely unchanged.
   #
-  # Checks out via a dedicated SSH deploy key, not the default GITHUB_TOKEN: confirmed empirically (v0.3.0's first real run created and pushed the tag correctly, but zero tags/*-triggered workflow run ever fired for it) that GitHub Actions deliberately never lets a GITHUB_TOKEN-authenticated push trigger another workflow run, specifically to prevent recursive loops -- there is no permission or ruleset that changes this, only a genuinely different credential does. Uses the exact same pattern update-tap/update-scoop already use for the identical underlying reason (needing push authority the default token structurally cannot provide), just against this repository itself rather than an external tap/bucket repo.
+  # A GITHUB_TOKEN-authenticated push never triggers a new workflow run (GitHub's anti-recursion restriction) -- confirmed empirically for both the plain GITHUB_TOKEN and an SSH deploy key registered on this repo, so the tag this job pushes would otherwise never fire the build/publish/verify pipeline below. workflow_dispatch is explicitly exempt from that restriction, so .releaserc.json's @semantic-release/exec plugin re-dispatches this same workflow against the new tag directly (`gh workflow run ci.yml --ref ${nextRelease.gitTag}`) in its `success` hook, which only fires once semantic-release has actually created a release -- a no-op run (nothing to release) skips it entirely.
   semantic-release:
     name: Semantic Release
     if: github.ref == 'refs/heads/main'
     needs: [check]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          ssh-key: ${{ secrets.SEMANTIC_RELEASE_DEPLOY_KEY }}
 
       - uses: pnpm/action-setup@v6
 
@@ -58,6 +61,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - run: npx semantic-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # Everything below this point is the release pipeline, gated to tag pushes only ("v*") — the jobs above already validate every ordinary push and PR, so a tag push is the only time this project builds five platform binaries, publishes npm, and updates two external tap repos.
 
