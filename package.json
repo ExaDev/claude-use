@@ -16,7 +16,7 @@
     "cli"
   ],
   "packageManager": "pnpm@11.6.0",
-  "type": "commonjs",
+  "type": "module",
   "engines": {
     "node": ">=22.12.0"
   },

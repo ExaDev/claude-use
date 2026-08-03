@@ -21,10 +21,10 @@
     "eslint-rules/**/*.ts",
     "scripts/**/*.ts",
     "scripts/**/*.mts",
-    "vitest.config.mts",
+    "vitest.config.ts",
     "eslint.config.ts",
     "commitlint.config.ts",
-    "lint-staged.config.mts",
+    "lint-staged.config.ts",
     "release.config.ts",
     "knip.config.ts"
   ],

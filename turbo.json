@@ -11,11 +11,11 @@
       "outputs": ["tsconfig.tsbuildinfo"]
     },
     "_test": {
-      "inputs": ["src/**", "vitest.config.mts"],
+      "inputs": ["src/**", "vitest.config.ts"],
       "outputs": []
     },
     "_test:coverage": {
-      "inputs": ["src/**", "vitest.config.mts"],
+      "inputs": ["src/**", "vitest.config.ts"],
       "outputs": ["coverage/**"]
     },
     "_knip": {
