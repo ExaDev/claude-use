@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildLayoutPaths } from "../paths";
-import { assembleCascade } from "../resolve";
+import { assembleCascade } from "../resolve/walk";
 import { FAKE_HOME } from "../test-helpers";
 import { loadCascadeInput, readDirectorySelections } from "./cascade";
 

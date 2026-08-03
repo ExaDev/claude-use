@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Decision } from "./resolve";
+import type { Decision } from "./resolve/types";
 import { shippedClassification, FAKE_CLAUDE_HOME, FAKE_HOME, FAKE_NOW_MS, createFakeFarmFs } from "./test-helpers";
 import {
   flagAmbiguousEncodings,
@@ -12,7 +12,8 @@ import {
   type RunCheckParams,
 } from "./check";
 import type { RunPort } from "./launcher/ports";
-import type { CascadeInput, FlattenedCascade } from "./resolve";
+import type { CascadeInput } from "./resolve/walk";
+import type { FlattenedCascade } from "./resolve/types";
 import { makeFacts } from "./test-helpers";
 
 /** A cascade with no configured layers at all — everything falls back to the shipped classification/category defaults. */

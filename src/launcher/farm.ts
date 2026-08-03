@@ -3,19 +3,11 @@ import { z } from "zod";
 
 import { classifyEntries } from "../config/classify";
 import type { CategoryClassification, CategoryClassificationOverlay } from "../config/schema";
-import {
-  planReconciliation,
-  resolveDecisions,
-  type CascadeInput,
-  type Diagnostic,
-  type EntryFact,
-  type EntryFacts,
-  type FarmManifest,
-  type FarmPlan,
-  type ListingEntry,
-  type ReconcileAction,
-  type ResolvedState,
-} from "../resolve";
+import { planReconciliation, type FarmManifest, type ListingEntry, type ReconcileAction } from "../resolve/reconcile";
+import { resolveDecisions, type ResolvedState } from "../resolve/pipeline";
+import type { CascadeInput } from "../resolve/walk";
+import type { Diagnostic, EntryFact, EntryFacts } from "../resolve/types";
+import type { FarmPlan } from "../resolve/plan";
 import { acquireIdentityLock, type IdentityLock } from "./lock";
 import type { FarmFs } from "./ports";
 

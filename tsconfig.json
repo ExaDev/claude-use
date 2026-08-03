@@ -18,6 +18,7 @@
   },
   "include": [
     "src/**/*.ts",
+    "eslint-rules/**/*.ts",
     "scripts/**/*.ts",
     "scripts/**/*.mts",
     "vitest.config.mts",

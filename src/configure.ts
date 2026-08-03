@@ -28,7 +28,9 @@ import type { LogPort } from "./launcher/ports";
 import { expandTilde, isAncestorOrSelf, normaliseRulePath } from "./pathNorm";
 import { resolveClaudeHome, type LayoutPaths } from "./paths";
 import { realFarmFs, realRunPort, resolveGitBranch } from "./realPorts";
-import { resolveDecisions, walkDirectoryAncestors, type Decision } from "./resolve";
+import { resolveDecisions } from "./resolve/pipeline";
+import { walkDirectoryAncestors } from "./resolve/walk";
+import type { Decision } from "./resolve/types";
 
 /* -------------------------------------------------------------------------------------------------- */
 /* PromptsPort: the injectable abstraction around @clack/prompts.                                     */
@@ -451,13 +453,12 @@ async function runProfileDirectMode(context: ConfigureContext): Promise<void> {
     deps.prompts.cancel("Cancelled.");
     return;
   }
-  const profileName = chosen;
 
-  const profile = readProfile(deps.paths, profileName) ?? {};
+  const profile = readProfile(deps.paths, chosen) ?? {};
   const current = resolveCategoryState((name) => profile.categories?.[name]);
 
   const selected = await deps.prompts.multiselect({
-    message: `Which categories should configuration profile "${profileName}" share?`,
+    message: `Which categories should configuration profile "${chosen}" share?`,
     options: OVERRIDABLE_CATEGORIES.map((name) => ({
       value: name,
       label: CATEGORY_LABELS[name],
@@ -481,8 +482,8 @@ async function runProfileDirectMode(context: ConfigureContext): Promise<void> {
     deps.log.info("No changes.");
     return;
   }
-  setProfileCategories(deps.paths, profileName, patch);
-  deps.log.info(`Updated configuration profile "${profileName}".`);
+  setProfileCategories(deps.paths, chosen, patch);
+  deps.log.info(`Updated configuration profile "${chosen}".`);
 }
 
 async function runCategoriesMode(context: ConfigureContext): Promise<void> {

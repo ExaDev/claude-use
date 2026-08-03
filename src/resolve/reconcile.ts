@@ -32,7 +32,7 @@ export type ReconcileAction =
   | { readonly kind: "skip"; readonly rel: string; readonly reason: SkipReason };
 
 /** Why a path in the old farm needs no action. */
-export type SkipReason =
+type SkipReason =
   /** A symlink the previous resync placed. It is a view of the canonical tree, so there is nothing to write back. */
   | "is-symlink"
   /** A directory the previous resync materialised. Not new data itself; its children are examined individually. */

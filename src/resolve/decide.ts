@@ -206,7 +206,7 @@ export function resolveAll(params: DecideParams): ResolveAllResult {
 }
 
 /** Collapses diagnostics that are identical in code, subject, layer, and message — the same unclassified top-level entry otherwise reports once per file beneath it. */
-export function dedupeDiagnostics(diagnostics: readonly Diagnostic[]): Diagnostic[] {
+function dedupeDiagnostics(diagnostics: readonly Diagnostic[]): Diagnostic[] {
   const seen = new Set<string>();
   const unique: Diagnostic[] = [];
   for (const diagnostic of diagnostics) {

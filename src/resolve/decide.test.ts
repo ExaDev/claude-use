@@ -7,8 +7,6 @@ import { resolveAll, resolveEntry, selectRule } from "./decide";
 import { flattenLayers } from "./flatten";
 import type { EntryFacts, Layer } from "./types";
 
-const home = FAKE_HOME;
-
 function layer(id: number, overrides: Partial<Layer> = {}): Layer {
   return { id, kind: "config-profile", source: `layer-${id}`, ...overrides };
 }
@@ -25,7 +23,7 @@ function classificationFor(facts: EntryFacts): ReadonlyMap<string, CategoryName 
 }
 
 function decide(relPath: string, layers: Layer[], facts: EntryFacts) {
-  const flattened = flattenLayers(layers, { home });
+  const flattened = flattenLayers(layers, { home: FAKE_HOME });
   return resolveEntry(relPath, { flattened, facts, classification: classificationFor(facts) });
 }
 
@@ -201,7 +199,7 @@ describe("selectRule", () => {
     const facts = makeFacts({ "skills/commit/SKILL.md": { mtimeMs: FAKE_NOW_MS - 400 * DAY_MS } });
     const flattened = flattenLayers(
       [layer(0, { entries: { "knowledge/skills/*": { value: true, when: { newerThan: "1d" } } } })],
-      { home },
+      { home: FAKE_HOME },
     );
     const selection = selectRule("skills/commit", flattened, {
       nowMs: facts.nowMs,
@@ -226,7 +224,7 @@ describe("category prefix cross-check", () => {
 describe("resolveAll", () => {
   it("decides every entry in the fact manifest and carries phase-one diagnostics through", () => {
     const facts = makeFacts({ "skills/commit/SKILL.md": true, ".credentials.json": true });
-    const flattened = flattenLayers([layer(0, { entries: { "secret/.credentials.json": true } })], { home });
+    const flattened = flattenLayers([layer(0, { entries: { "secret/.credentials.json": true } })], { home: FAKE_HOME });
     const result = resolveAll({ flattened, facts, classification: classificationFor(facts) });
     expect([...result.decisions.keys()].sort()).toEqual([".credentials.json", "skills", "skills/commit", "skills/commit/SKILL.md"]);
     expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("SECRET_ENTRY_KEY");
@@ -234,7 +232,7 @@ describe("resolveAll", () => {
 
   it("de-duplicates a diagnostic that would otherwise repeat once per file beneath one unclassified entry", () => {
     const facts = makeFacts({ "mystery/a": true, "mystery/b": true, "mystery/c/d": true });
-    const flattened = flattenLayers([], { home });
+    const flattened = flattenLayers([], { home: FAKE_HOME });
     const result = resolveAll({ flattened, facts, classification: classificationFor(facts) });
     expect(result.diagnostics.filter((diagnostic) => diagnostic.code === "UNCLASSIFIED_ENTRY")).toHaveLength(1);
   });

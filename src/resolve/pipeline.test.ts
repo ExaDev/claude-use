@@ -1,21 +1,13 @@
-import fs from "node:fs";
-import path from "node:path";
-
 import { describe, expect, it } from "vitest";
 
-import type { ConfigProfile } from "./config/schema";
-import {
-  planReconciliation,
-  resolveDecisions,
-  topLevelNames,
-  type Decision,
-  type ProfileLoader,
-  type ResolvedState,
-} from "./resolve";
-import { DAY_MS, FAKE_CLAUDE_HOME, FAKE_HOME, FAKE_NOW_MS, makeFacts, shippedClassification } from "./test-helpers";
-import type { CascadeInput, DirectoryLevelSources, EntryFacts } from "./resolve";
-
-const home = FAKE_HOME;
+import type { ConfigProfile } from "../config/schema";
+import { DAY_MS, FAKE_CLAUDE_HOME, FAKE_HOME, FAKE_NOW_MS, makeFacts, shippedClassification } from "../test-helpers";
+import type { Decision } from "./types";
+import type { ProfileLoader } from "./extends";
+import type { CascadeInput, DirectoryLevelSources } from "./walk";
+import { planReconciliation } from "./reconcile";
+import { resolveDecisions, topLevelNames, type ResolvedState } from "./pipeline";
+import type { EntryFacts } from "./types";
 
 function loader(profiles: Readonly<Record<string, ConfigProfile>>): ProfileLoader {
   return (name) => {
@@ -46,7 +38,7 @@ function realisticFacts(overrides: Partial<Omit<EntryFacts, "entries">> = {}): E
 function resolve(cascade: Omit<CascadeInput, "home">, facts: EntryFacts = realisticFacts()): ResolvedState {
   return resolveDecisions({
     facts,
-    cascade: { home, ...cascade },
+    cascade: { home: FAKE_HOME, ...cascade },
     classification: { defaults: shippedClassification },
   });
 }
@@ -94,8 +86,8 @@ describe("cascade layering", () => {
 
   it("cannot silently undo a shallower layer's specific entry with a deeper layer's blanket category flip", () => {
     const levels: DirectoryLevelSources[] = [
-      { dir: `${home}/work`, portable: { config: { entries: { "knowledge/skills/commit": true } }, filepath: "shallow" } },
-      { dir: `${home}/work/acme`, portable: { config: { categories: { knowledge: false } }, filepath: "deep" } },
+      { dir: `${FAKE_HOME}/work`, portable: { config: { entries: { "knowledge/skills/commit": true } }, filepath: "shallow" } },
+      { dir: `${FAKE_HOME}/work/acme`, portable: { config: { categories: { knowledge: false } }, filepath: "deep" } },
     ];
     const state = resolve({ loadProfile: loader({}), levels });
     expect(shared(state, "skills/commit")).toBe(true);
@@ -123,8 +115,8 @@ describe("the two-phase merge algorithm", () => {
 
   it("resolves two globs from different layers to the later layer's value", () => {
     const levels: DirectoryLevelSources[] = [
-      { dir: `${home}/work`, portable: { config: { entries: { "knowledge/skills/*": true } }, filepath: "earlier" } },
-      { dir: `${home}/work/acme`, portable: { config: { entries: { "knowledge/skills/p*": false } }, filepath: "later" } },
+      { dir: `${FAKE_HOME}/work`, portable: { config: { entries: { "knowledge/skills/*": true } }, filepath: "earlier" } },
+      { dir: `${FAKE_HOME}/work/acme`, portable: { config: { entries: { "knowledge/skills/p*": false } }, filepath: "later" } },
     ];
     const state = resolve({ loadProfile: loader({}), levels });
     expect(shared(state, "skills/pr-feedback")).toBe(false);
@@ -169,13 +161,13 @@ describe("the two-phase merge algorithm", () => {
   it("collapses two canonically-identical keys from different layers into one rule in phase one", () => {
     const levels: DirectoryLevelSources[] = [
       {
-        dir: `${home}/work`,
+        dir: `${FAKE_HOME}/work`,
         portable: { config: { entries: { "history/projects/~/work/clients/acme": true } }, filepath: "tilde" },
       },
       {
-        dir: `${home}/work/acme`,
+        dir: `${FAKE_HOME}/work/acme`,
         portable: {
-          config: { entries: { [`history/projects/${home}/work/clients/acme`]: false } },
+          config: { entries: { [`history/projects/${FAKE_HOME}/work/clients/acme`]: false } },
           filepath: "absolute",
         },
       },
@@ -191,11 +183,11 @@ describe("the corrected comparator's trust property", () => {
   it("lets a personal directory rule tighten what an untrusted committed file opened, and never the reverse", () => {
     const levels: DirectoryLevelSources[] = [
       {
-        dir: `${home}/work`,
+        dir: `${FAKE_HOME}/work`,
         // A repo you just cloned opens one specific skill with an exact key.
         portable: { config: { entries: { "knowledge/skills/private-notes": true } }, filepath: "untrusted-repo" },
         // Your own pinned rule for the same path closes the whole subtree with a glob.
-        rules: [{ rule: { path: `${home}/work`, entries: { "knowledge/skills/*": false } }, filepath: "personal-rule" }],
+        rules: [{ rule: { path: `${FAKE_HOME}/work`, entries: { "knowledge/skills/*": false } }, filepath: "personal-rule" }],
       },
     ];
     const state = resolve({ loadProfile: loader({}), levels });
@@ -266,10 +258,10 @@ describe("directory rules", () => {
 
   it("folds nested paths shallowest-first, each level adding context", () => {
     const levels: DirectoryLevelSources[] = [
-      { dir: `${home}/work`, rules: [{ rule: { path: `${home}/work`, configProfile: "work-default" }, filepath: "r1" }] },
+      { dir: `${FAKE_HOME}/work`, rules: [{ rule: { path: `${FAKE_HOME}/work`, configProfile: "work-default" }, filepath: "r1" }] },
       {
-        dir: `${home}/work/clients`,
-        rules: [{ rule: { path: `${home}/work/clients`, configProfile: "client-strict" }, filepath: "r2" }],
+        dir: `${FAKE_HOME}/work/clients`,
+        rules: [{ rule: { path: `${FAKE_HOME}/work/clients`, configProfile: "client-strict" }, filepath: "r2" }],
       },
     ];
     const state = resolve({ loadProfile: profiles, levels });
@@ -280,10 +272,10 @@ describe("directory rules", () => {
   it("composes a mid-tree profile in rather than swapping the base one out", () => {
     const levels: DirectoryLevelSources[] = [
       {
-        dir: `${home}/work/clients/acme`,
+        dir: `${FAKE_HOME}/work/clients/acme`,
         rules: [
           {
-            rule: { path: `${home}/work/clients/acme`, configProfile: "client-strict", entries: { "knowledge/skills/commit": true } },
+            rule: { path: `${FAKE_HOME}/work/clients/acme`, configProfile: "client-strict", entries: { "knowledge/skills/commit": true } },
             filepath: "r",
           },
         ],
@@ -297,10 +289,10 @@ describe("directory rules", () => {
 
   it("lets a deeper rule narrow what a shallower one opened", () => {
     const levels: DirectoryLevelSources[] = [
-      { dir: `${home}/oss`, rules: [{ rule: { path: `${home}/oss`, categories: { history: true } }, filepath: "a" }] },
+      { dir: `${FAKE_HOME}/oss`, rules: [{ rule: { path: `${FAKE_HOME}/oss`, categories: { history: true } }, filepath: "a" }] },
       {
-        dir: `${home}/oss/private-experiments`,
-        rules: [{ rule: { path: `${home}/oss/private-experiments`, categories: { history: false } }, filepath: "b" }],
+        dir: `${FAKE_HOME}/oss/private-experiments`,
+        rules: [{ rule: { path: `${FAKE_HOME}/oss/private-experiments`, categories: { history: false } }, filepath: "b" }],
       },
     ];
     expect(shared(resolve({ loadProfile: profiles, levels }), "projects")).toBe(false);
@@ -311,8 +303,8 @@ describe("directory rules", () => {
 describe("portable .claude-use.json files", () => {
   it("folds committed files at different depths shallowest-to-deepest", () => {
     const levels: DirectoryLevelSources[] = [
-      { dir: `${home}/work`, portable: { config: { categories: { history: true } }, filepath: "shallow" } },
-      { dir: `${home}/work/repo`, portable: { config: { categories: { history: false } }, filepath: "deep" } },
+      { dir: `${FAKE_HOME}/work`, portable: { config: { categories: { history: true } }, filepath: "shallow" } },
+      { dir: `${FAKE_HOME}/work/repo`, portable: { config: { categories: { history: false } }, filepath: "deep" } },
     ];
     expect(shared(resolve({ loadProfile: loader({}), levels }), "projects")).toBe(false);
   });
@@ -320,9 +312,9 @@ describe("portable .claude-use.json files", () => {
   it("composes all three sources at one level most-personal-last", () => {
     const levels: DirectoryLevelSources[] = [
       {
-        dir: `${home}/work/repo`,
+        dir: `${FAKE_HOME}/work/repo`,
         portable: { config: { categories: { history: true, knowledge: true } }, filepath: "committed" },
-        rules: [{ rule: { path: `${home}/work/repo`, categories: { knowledge: false } }, filepath: "personal-rule" }],
+        rules: [{ rule: { path: `${FAKE_HOME}/work/repo`, categories: { knowledge: false } }, filepath: "personal-rule" }],
         portableLocal: { config: { categories: { history: false } }, filepath: "local" },
       },
     ];
@@ -335,13 +327,13 @@ describe("portable .claude-use.json files", () => {
   it("gives a teammate the repo's isolation-plus-shared-skills posture with no local configuration at all", () => {
     const levels: DirectoryLevelSources[] = [
       {
-        dir: `${home}/work/repo`,
+        dir: `${FAKE_HOME}/work/repo`,
         portable: {
           config: {
             categories: { history: false },
             entries: { "knowledge/skills/commit": true, "knowledge/skills/pr-feedback": true },
           },
-          filepath: `${home}/work/repo/.claude-use.json`,
+          filepath: `${FAKE_HOME}/work/repo/.claude-use.json`,
         },
       },
     ];
@@ -529,7 +521,7 @@ describe("the whole pipeline against a materialised farm", () => {
         version: 1,
         builtAtMs: FAKE_NOW_MS - DAY_MS,
         identity: "testing",
-        cwd: `${home}/work`,
+        cwd: `${FAKE_HOME}/work`,
         claudeHome: FAKE_CLAUDE_HOME,
         materialised: ["projects"],
         links: [],
@@ -546,36 +538,5 @@ describe("the whole pipeline against a materialised farm", () => {
         (action) => action.rel === "projects/-home-testuser-work-clients-brand-new/session.jsonl",
       )?.kind,
     ).toBe("adopt");
-  });
-});
-
-describe("module boundary", () => {
-  it("is the only way into the resolver — nothing outside src/resolve/ imports its internals directly", () => {
-    // The resolver's internal split into match/flatten/decide/extends/walk/plan/reconcile is an implementation detail. Enforcing that structurally here, rather than trusting convention, is what keeps it free to change.
-    const sourceRoot = path.join(__dirname);
-    const offenders: string[] = [];
-
-    const walk = (dir: string): void => {
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) {
-          walk(full);
-          continue;
-        }
-        if (!entry.name.endsWith(".ts")) {
-          continue;
-        }
-        const relative = path.relative(sourceRoot, full);
-        if (relative.startsWith("resolve/") || relative === "resolve.ts" || relative === "resolve.test.ts") {
-          continue;
-        }
-        if (/from\s+"[^"]*\bresolve\/[^"]+"/.test(fs.readFileSync(full, "utf8"))) {
-          offenders.push(relative);
-        }
-      }
-    };
-    walk(sourceRoot);
-
-    expect(offenders).toEqual([]);
   });
 });

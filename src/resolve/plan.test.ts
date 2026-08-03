@@ -8,8 +8,6 @@ import { flattenLayers } from "./flatten";
 import { buildChildIndex, planFarm, type FarmPlan } from "./plan";
 import type { EntryFacts, Layer } from "./types";
 
-const home = FAKE_HOME;
-
 function layer(id: number, overrides: Partial<Layer> = {}): Layer {
   return { id, kind: "config-profile", source: `layer-${id}`, ...overrides };
 }
@@ -26,7 +24,7 @@ function classificationFor(facts: EntryFacts): ReadonlyMap<string, CategoryName 
 }
 
 function plan(layers: Layer[], facts: EntryFacts): FarmPlan {
-  const flattened = flattenLayers(layers, { home });
+  const flattened = flattenLayers(layers, { home: FAKE_HOME });
   const { decisions } = resolveAll({ flattened, facts, classification: classificationFor(facts) });
   return planFarm({ facts, decisions, flattened });
 }

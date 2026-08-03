@@ -26,16 +26,10 @@ import {
   realRunPort,
   resolveGitBranch,
 } from "./realPorts";
-import {
-  detectEncodingAmbiguity,
-  resolveDecisions,
-  type CascadeInput,
-  type Decision,
-  type EncodingAmbiguity,
-  type EntryFacts,
-  type FlattenedCascade,
-  type ResolvedState,
-} from "./resolve";
+import { detectEncodingAmbiguity, type EncodingAmbiguity } from "./resolve/projects";
+import { resolveDecisions, type ResolvedState } from "./resolve/pipeline";
+import type { CascadeInput } from "./resolve/walk";
+import type { Decision, EntryFacts, FlattenedCascade } from "./resolve/types";
 
 /** The literal key prefix a `history/projects/` entries key always carries — see `src/resolve/match.ts`'s own `PROJECTS_PREFIX`, which is the canonical (category-stripped) form of this same prefix. */
 const HISTORY_PROJECTS_KEY_PREFIX = "history/projects/";

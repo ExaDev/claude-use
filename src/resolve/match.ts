@@ -24,7 +24,7 @@ export function normaliseRelative(fragment: string): string {
 }
 
 /** The literal prefix every `history` entries key that names a project directory must carry. */
-export const PROJECTS_PREFIX = "projects/";
+const PROJECTS_PREFIX = "projects/";
 
 /** The outcome of canonicalising one entries key. */
 export interface CanonicalKey {

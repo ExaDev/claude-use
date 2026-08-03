@@ -2,6 +2,14 @@ import js from "@eslint/js";
 import globals from "globals";
 import tseslint from "typescript-eslint";
 
+import { noPointlessReassignmentRule } from "./eslint-rules/no-pointless-reassignment";
+
+// Bans re-export syntax (`export * from "..."`, `export { x } from "..."`) everywhere, no exceptions -- every consumer imports directly from the real source rather than through an intermediate re-export or barrel file.
+const EXPORT_ALL_SELECTOR = "ExportAllDeclaration";
+const EXPORT_NAMED_SELECTOR = "ExportNamedDeclaration[source]";
+const RE_EXPORT_ALL_MESSAGE = "Re-exporting all exports is not allowed - import directly from the source.";
+const RE_EXPORT_NAMED_MESSAGE = "Re-exporting is not allowed - import directly from the source.";
+
 export default tseslint.config(
   { ignores: ["dist", "coverage", "node_modules"] },
   {
@@ -22,9 +30,16 @@ export default tseslint.config(
   },
   { linterOptions: { noInlineConfig: true } },
   {
+    plugins: { local: { rules: { "no-pointless-reassignment": noPointlessReassignmentRule } } },
     rules: {
       "@typescript-eslint/consistent-type-assertions": ["error", { assertionStyle: "never" }],
       "@typescript-eslint/consistent-type-imports": ["error", { fixStyle: "inline-type-imports" }],
+      "local/no-pointless-reassignment": "error",
+      "no-restricted-syntax": [
+        "error",
+        { selector: EXPORT_ALL_SELECTOR, message: RE_EXPORT_ALL_MESSAGE },
+        { selector: EXPORT_NAMED_SELECTOR, message: RE_EXPORT_NAMED_MESSAGE },
+      ],
     },
   },
 );

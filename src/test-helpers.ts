@@ -3,7 +3,7 @@ import path from "node:path";
 import categoriesDefaultJson from "./config/categories.default.json";
 import { CategoryClassificationSchema, type CategoryClassification } from "./config/schema";
 import type { FarmFs, FarmStat } from "./launcher/ports";
-import type { EntryFact, EntryFacts } from "./resolve";
+import type { EntryFact, EntryFacts } from "./resolve/types";
 
 /** The shipped classification map, parsed once, for use as the default in tests. */
 export const shippedClassification: CategoryClassification = CategoryClassificationSchema.parse(categoriesDefaultJson);

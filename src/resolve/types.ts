@@ -11,7 +11,7 @@ import type {
 export type LayerId = number;
 
 /** Where a cascade layer came from. Purely descriptive — precedence is carried by `LayerId`, never by kind. */
-export type LayerKind =
+type LayerKind =
   | "global-config"
   | "config-profile"
   | "directory-rule"
@@ -93,7 +93,7 @@ export interface CompiledRule {
 }
 
 /** How a decision was reached, for `claude-use check`'s "which layer decided this" output. */
-export type DecisionVia =
+type DecisionVia =
   /** The unconditional pre-cascade floor: the path's real classification is `secret`. */
   | "secret-floor"
   /** Nothing in the classification map recognises the path's top-level entry. */
@@ -124,7 +124,7 @@ export interface EliminatedRule {
 }
 
 /** Every diagnostic the resolver can raise. Codes are stable strings so `claude-use check` and tests can assert on them. */
-export type DiagnosticCode =
+type DiagnosticCode =
   /** A profile's `extends` graph contains a cycle. */
   | "EXTENDS_CYCLE"
   /** An `extends` entry names a profile that does not exist. */
@@ -159,7 +159,7 @@ export type DiagnosticCode =
   | "FARM_PREVIOUS_RETAINED";
 
 /** Severity of a diagnostic. An `error` means a configuration layer asked for something the tool refused to do. */
-export type DiagnosticSeverity = "error" | "warning" | "info";
+type DiagnosticSeverity = "error" | "warning" | "info";
 
 /** One structured diagnostic. */
 export interface Diagnostic {

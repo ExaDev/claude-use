@@ -18,7 +18,7 @@ import { detectAmbientCredential, formatAmbientCredentialGuardMessage } from "./
 import type { RunPort } from "./launcher/ports";
 import type { LayoutPaths } from "./paths";
 import { realFsPort, realOwnExecutablePath, realResolveClaudeBinary, realRunPort } from "./realPorts";
-import { lineariseProfile, type ProfileLoader, type ProfileSource } from "./resolve";
+import { lineariseProfile, type ProfileLoader, type ProfileSource } from "./resolve/extends";
 import type { DiscoveredClaudeBinary } from "./versionDiscovery";
 
 type DoctorSeverity = "pass" | "warn" | "fail";

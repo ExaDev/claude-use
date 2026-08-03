@@ -10,7 +10,7 @@ import { IdentityLockBusyError } from "./launcher/lock";
 import type { FarmFs, FsPort, LogPort, ProcPort, SpawnPort } from "./launcher/ports";
 import { spawnClaude } from "./launcher/spawn";
 import type { CategoryClassification, CategoryClassificationOverlay, LaunchFlags } from "./config/schema";
-import type { CascadeInput } from "./resolve";
+import type { CascadeInput } from "./resolve/walk";
 import type { DiscoveredClaudeBinary } from "./versionDiscovery";
 
 /**

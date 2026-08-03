@@ -9,7 +9,8 @@ import {
   type GlobalConfig,
 } from "../config/schema";
 import { expandTilde, normaliseRulePath } from "../pathNorm";
-import { walkDirectoryAncestors, type CascadeInput, type DirectoryLevelSources, type ProfileSource, type ReadablePredicate } from "../resolve";
+import { walkDirectoryAncestors, type CascadeInput, type DirectoryLevelSources, type ReadablePredicate } from "../resolve/walk";
+import type { ProfileSource } from "../resolve/extends";
 import type { LayoutPaths } from "../paths";
 
 /** The committed, team-shared portable config file name. */

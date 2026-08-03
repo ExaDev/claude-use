@@ -4,7 +4,7 @@ import { patternCouldReachUnder } from "./match";
 import type { Decision, EntryFacts, FlattenedCascade } from "./types";
 
 /** What the farm should contain at one path. */
-export type FarmPlanEntry =
+type FarmPlanEntry =
   /** A single symlink standing in for this whole path — always absolute, always under `claudeHome`. */
   | { readonly kind: "link"; readonly rel: string; readonly target: string }
   /** A real local directory the farm builds itself, because the decision beneath it is not uniform or because a conditional rule could touch it. */
@@ -13,7 +13,7 @@ export type FarmPlanEntry =
   | { readonly kind: "omit"; readonly rel: string };
 
 /** Why a directory has to be built rather than symlinked. */
-export type MaterialiseReason =
+type MaterialiseReason =
   /** Descendants of this directory resolve to different decisions, so a single symlink cannot express the outcome. */
   | "split-decision"
   /** A conditional entries rule could match something under this directory, so the decision has to stay live. */

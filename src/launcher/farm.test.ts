@@ -2,7 +2,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { createFakeFarmFs, fakeSleep, FAKE_CLAUDE_HOME, FAKE_HOME, FAKE_NOW_MS, shippedClassification, type FakeFarmFs } from "../test-helpers";
-import type { CascadeInput } from "../resolve";
+import type { CascadeInput } from "../resolve/walk";
 import { FARM_MANIFEST_FILENAME, readFarmManifest, resyncFarm, type ResyncFarmParams } from "./farm";
 import { IdentityLockBusyError, identityLockPath } from "./lock";
 

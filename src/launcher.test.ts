@@ -4,7 +4,7 @@ import { runLauncher, type FarmRuntime, type RunLauncherParams } from "./launche
 import { identityLockPath } from "./launcher/lock";
 import type { FsPort, LogPort, ProcPort, SpawnPort, SpawnResult } from "./launcher/ports";
 import { buildLayoutPaths } from "./paths";
-import type { CascadeInput } from "./resolve";
+import type { CascadeInput } from "./resolve/walk";
 import { createFakeFarmFs, fakeSleep, FAKE_CLAUDE_HOME, FAKE_HOME, FAKE_NOW_MS, shippedClassification, type FakeFarmFs } from "./test-helpers";
 import type { DiscoveredClaudeBinary } from "./versionDiscovery";
 
