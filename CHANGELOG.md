@@ -1,20 +1,12 @@
-## [0.3.6](https://github.com/ExaDev/claude-use/compare/v0.3.5...v0.3.6) (2026-08-03)
+## [0.3.6](https://github.com/ExaDev/claude-use/compare/v0.3.3...v0.3.6) (2026-08-03)
 
-### Bug Fixes
-
-* stop trying to override the reserved GITHUB_REF_NAME variable ([e14e733](https://github.com/ExaDev/claude-use/commit/e14e73302861f684ec82195f29baf523a6bc6f57))
-
-## [0.3.5](https://github.com/ExaDev/claude-use/compare/v0.3.4...v0.3.5) (2026-08-03)
-
-### Bug Fixes
-
-* don't cancel an in-flight release when a push supersedes it ([5ee1f30](https://github.com/ExaDev/claude-use/commit/5ee1f30acd56c4830ca14110c5e414bdb7c42898))
-
-## [0.3.4](https://github.com/ExaDev/claude-use/compare/v0.3.3...v0.3.4) (2026-08-03)
+v0.3.4 and v0.3.5 were tagged but never fully published — a CI concurrency race cancelled their release pipelines mid-flight (fixed below), and both tags/releases have been removed. v0.3.6 is the first version to actually ship the fixes below.
 
 ### Bug Fixes
 
 * make the Turbo cache key unique per CI run ([660fd3d](https://github.com/ExaDev/claude-use/commit/660fd3d46bbe25bf28722520cb53fa2db7dc299e))
+* don't cancel an in-flight release when a push supersedes it ([5ee1f30](https://github.com/ExaDev/claude-use/commit/5ee1f30acd56c4830ca14110c5e414bdb7c42898))
+* stop trying to override the reserved GITHUB_REF_NAME variable ([e14e733](https://github.com/ExaDev/claude-use/commit/e14e73302861f684ec82195f29baf523a6bc6f57))
 
 ## [0.3.3](https://github.com/ExaDev/claude-use/compare/v0.3.2...v0.3.3) (2026-08-03)
 
