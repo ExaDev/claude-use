@@ -80,7 +80,7 @@ jobs:
           task: audit
           command: pnpm audit --audit-level moderate
 
-  # Unused-file/export/dependency detection, scoped to a single-package CLI (not exadex's Next.js monorepo shape) — src/cli.ts and src/resolve.ts (the documented public facade over src/resolve/*) are the only declared entries; everything else knip flags as unused is either genuinely dead or a same-file-only export that should never have carried the `export` keyword in the first place.
+  # Unused-file/export/dependency detection, scoped to a single-package CLI (not exadex's Next.js monorepo shape) — src/cli.ts is the only declared entry; every resolve/* submodule is imported directly by its own consumers now (no facade), and everything else knip flags as unused is either genuinely dead or a same-file-only export that should never have carried the `export` keyword in the first place.
   knip:
     runs-on: ubuntu-latest
     steps:
@@ -648,7 +648,7 @@ jobs:
     needs: [semantic-release, release, update-tap]
     runs-on: macos-latest
     env:
-      GITHUB_REF_NAME: ${{ needs.semantic-release.outputs.tag }}
+      RELEASE_TAG: ${{ needs.semantic-release.outputs.tag }}
     steps:
       - name: Tap and install
         run: |
@@ -658,7 +658,7 @@ jobs:
         run: |
           claude-use --version
           INSTALLED=$(claude-use --version)
-          EXPECTED="${GITHUB_REF_NAME#v}"
+          EXPECTED="${RELEASE_TAG#v}"
           if [ "$INSTALLED" != "$EXPECTED" ]; then
             echo "version mismatch: installed=$INSTALLED expected=$EXPECTED"
             exit 1
@@ -697,7 +697,7 @@ jobs:
     needs: [semantic-release, release, update-tap]
     runs-on: macos-15-intel
     env:
-      GITHUB_REF_NAME: ${{ needs.semantic-release.outputs.tag }}
+      RELEASE_TAG: ${{ needs.semantic-release.outputs.tag }}
     steps:
       - name: Tap and install
         run: |
@@ -707,7 +707,7 @@ jobs:
         run: |
           claude-use --version
           INSTALLED=$(claude-use --version)
-          EXPECTED="${GITHUB_REF_NAME#v}"
+          EXPECTED="${RELEASE_TAG#v}"
           if [ "$INSTALLED" != "$EXPECTED" ]; then
             echo "version mismatch: installed=$INSTALLED expected=$EXPECTED"
             exit 1
@@ -749,7 +749,7 @@ jobs:
         os: [ubuntu-latest, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
     env:
-      GITHUB_REF_NAME: ${{ needs.semantic-release.outputs.tag }}
+      RELEASE_TAG: ${{ needs.semantic-release.outputs.tag }}
     steps:
       - name: Install Homebrew on Linux
         run: |
@@ -767,7 +767,7 @@ jobs:
         run: |
           claude-use --version
           INSTALLED=$(claude-use --version)
-          EXPECTED="${GITHUB_REF_NAME#v}"
+          EXPECTED="${RELEASE_TAG#v}"
           if [ "$INSTALLED" != "$EXPECTED" ]; then
             echo "version mismatch: installed=$INSTALLED expected=$EXPECTED"
             exit 1
@@ -809,7 +809,7 @@ jobs:
         os: [windows-latest, windows-11-arm]
     runs-on: ${{ matrix.os }}
     env:
-      GITHUB_REF_NAME: ${{ needs.semantic-release.outputs.tag }}
+      RELEASE_TAG: ${{ needs.semantic-release.outputs.tag }}
     steps:
       - name: Install Scoop
         shell: pwsh
@@ -831,7 +831,7 @@ jobs:
         run: |
           $installed = claude-use --version
           Write-Host $installed
-          $expected = $env:GITHUB_REF_NAME -replace '^v', ''
+          $expected = $env:RELEASE_TAG -replace '^v', ''
           if ($installed -ne $expected) {
             Write-Host "version mismatch: installed=$installed expected=$expected"
             exit 1
@@ -877,12 +877,12 @@ jobs:
         os: [macos-latest, ubuntu-latest, windows-latest, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
     env:
-      GITHUB_REF_NAME: ${{ needs.semantic-release.outputs.tag }}
+      RELEASE_TAG: ${{ needs.semantic-release.outputs.tag }}
     steps:
       - name: Run via npx and check version
         shell: bash
         run: |
-          expected="${GITHUB_REF_NAME#v}"
+          expected="${RELEASE_TAG#v}"
           # The registry can take a few moments to serve a version right after `npm publish` returns success, so retry rather than trusting the first attempt.
           #
           # Uses `-p ... claude-use` (the explicit command form) rather than the bare `npx claude-use@version` form: empirically, npm 11.17's bare-invocation heuristic for a multi-bin package picks the wrong bin (`claude`, not `claude-use`) even though npm's own documented rule says it should match the bin named after the package. The explicit form isn't ambiguous in the first place, so it isn't exposed to that bug.
@@ -902,7 +902,7 @@ jobs:
       # npx alone doesn't leave a stable, PATH-visible claude-use for a shim to attach to -- a real global install is needed for the round-trip below, distinct from the ephemeral npx invocation just proven above.
       - name: Global install for the shim round-trip
         shell: bash
-        run: npm install -g "claude-use@${GITHUB_REF_NAME#v}"
+        run: npm install -g "claude-use@${RELEASE_TAG#v}"
       - name: Confirm claude is not installed by default
         shell: bash
         run: |
@@ -958,17 +958,17 @@ jobs:
         os: [macos-latest, ubuntu-latest, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
     env:
-      GITHUB_REF_NAME: ${{ needs.semantic-release.outputs.tag }}
+      RELEASE_TAG: ${{ needs.semantic-release.outputs.tag }}
     steps:
       - name: Download and run install.sh into a scratch directory
         run: |
           scratch_dir="$RUNNER_TEMP/claude-use-install-test"
           mkdir -p "$scratch_dir"
-          CLAUDE_USE_INSTALL_DIR="$scratch_dir" sh -c "$(curl -fsSL "https://github.com/ExaDev/claude-use/releases/download/${GITHUB_REF_NAME}/install.sh")"
+          CLAUDE_USE_INSTALL_DIR="$scratch_dir" sh -c "$(curl -fsSL "https://github.com/ExaDev/claude-use/releases/download/${RELEASE_TAG}/install.sh")"
           echo "$scratch_dir" >> "$GITHUB_PATH"
       - name: Check installed version matches the tag, and that claude is not installed by default
         run: |
-          expected="${GITHUB_REF_NAME#v}"
+          expected="${RELEASE_TAG#v}"
           installed=$(claude-use --version)
           echo "$installed"
           if [ "$installed" != "$expected" ]; then
@@ -1007,17 +1007,17 @@ jobs:
     needs: [semantic-release, release, publish-npm]
     runs-on: macos-15-intel
     env:
-      GITHUB_REF_NAME: ${{ needs.semantic-release.outputs.tag }}
+      RELEASE_TAG: ${{ needs.semantic-release.outputs.tag }}
     steps:
       - name: Download and run install.sh into a scratch directory
         run: |
           scratch_dir="$RUNNER_TEMP/claude-use-install-test"
           mkdir -p "$scratch_dir"
-          CLAUDE_USE_INSTALL_DIR="$scratch_dir" sh -c "$(curl -fsSL "https://github.com/ExaDev/claude-use/releases/download/${GITHUB_REF_NAME}/install.sh")"
+          CLAUDE_USE_INSTALL_DIR="$scratch_dir" sh -c "$(curl -fsSL "https://github.com/ExaDev/claude-use/releases/download/${RELEASE_TAG}/install.sh")"
           echo "$scratch_dir" >> "$GITHUB_PATH"
       - name: Check installed version matches the tag, and that claude is not installed by default
         run: |
-          expected="${GITHUB_REF_NAME#v}"
+          expected="${RELEASE_TAG#v}"
           installed=$(claude-use --version)
           echo "$installed"
           if [ "$installed" != "$expected" ]; then
