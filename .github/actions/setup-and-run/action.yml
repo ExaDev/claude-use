@@ -1,0 +1,42 @@
+name: Setup and Run
+description: Set up pnpm + Node, install dependencies from the frozen lockfile, restore Turbo's task cache, then run a command. Requires checkout before use.
+
+inputs:
+  task:
+    description: Task identifier for the step name and cache key (lint, typecheck, test, audit, knip, build).
+    required: true
+  command:
+    description: Shell command to execute after install.
+    required: true
+  github-token:
+    description: GitHub token for commands that need it.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v6
+
+    - uses: actions/setup-node@v7
+      with:
+        node-version-file: .tool-versions
+        cache: pnpm
+
+    - run: pnpm install --frozen-lockfile
+      shell: bash
+
+    # Turbo owns the actual cache-or-run decision per task (via each task's declared inputs/outputs in turbo.json) -- this step only needs to persist its local cache directory across runs. Keyed per-task because lint/typecheck/test/audit/knip/build are separate parallel jobs in the same workflow run, all writing to this same path.
+    - uses: actions/cache@v5
+      with:
+        path: .turbo
+        key: turbo-${{ runner.os }}-${{ inputs.task }}-${{ github.ref_name }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: |
+          turbo-${{ runner.os }}-${{ inputs.task }}-${{ github.ref_name }}-
+          turbo-${{ runner.os }}-${{ inputs.task }}-
+
+    - name: Run ${{ inputs.task }}
+      run: ${{ inputs.command }}
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}

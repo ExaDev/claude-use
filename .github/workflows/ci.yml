@@ -12,35 +12,91 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  check:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
-      # pnpm/action-setup reads the version from package.json's `packageManager` field.
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-and-run
         with:
-          node-version: "26.5.0"
-          cache: pnpm
+          task: lint
+          command: pnpm lint
 
-      - run: pnpm install --frozen-lockfile
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-and-run
+        with:
+          task: typecheck
+          command: pnpm typecheck
 
-      - run: pnpm typecheck
-      - run: pnpm test
-
-      # Regenerates schema/*.schema.json from src/config/schema.ts and fails if the committed files don't match byte-for-byte — the committed schemas are published artifacts, so they must never silently drift from the Zod schemas that define them.
+      # Regenerates schema/*.schema.json from src/config/schema.ts and fails if the committed files don't match byte-for-byte — the committed schemas are published artifacts, so they must never silently drift from the Zod schemas that define them. Lives here rather than its own job since it needs the same TS toolchain typecheck already set up, but it isn't a caching concern in its own right.
       - run: pnpm schema
       - run: git diff --exit-code schema/
 
-  # Runs on every push to main, after `check` passes. Determines whether the commits since the last tag warrant a new release by Conventional Commits type (see release.config.ts: feat -> minor, fix/perf -> patch, a BREAKING CHANGE footer -> major), and if so, creates and pushes the next vX.Y.Z tag itself -- exactly what used to be a manual `git tag`/`git push` step earlier in this project's life. Deliberately configured to do ONLY version-decision + tagging + changelog generation: @semantic-release/npm runs with npmPublish: false (so it still bumps package.json's version and commits it, but never touches the npm registry), and @semantic-release/github is not loaded at all -- actual npm publishing (OIDC trusted publishing), GitHub Release creation, and the Homebrew/Scoop tap updates all remain this project's own jobs below.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-and-run
+        with:
+          task: test
+          command: pnpm test:coverage
+
+      - name: Post coverage summary
+        if: always()
+        run: |
+          if [ -f coverage/coverage-summary.json ]; then
+            node -e "
+              const cov = require('./coverage/coverage-summary.json');
+              const t = cov.total;
+              const pct = (k) => t[k].pct.toFixed(1) + '%';
+              const row = (label, k) => '| ' + label + ' | ' + pct(k) + ' |';
+              console.log('## Coverage');
+              console.log('');
+              console.log('| Metric | Coverage |');
+              console.log('|--------|----------|');
+              console.log(row('Lines', 'lines'));
+              console.log(row('Statements', 'statements'));
+              console.log(row('Functions', 'functions'));
+              console.log(row('Branches', 'branches'));
+            " >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+
+  # Blocks release on any moderate+ severity vulnerability in the dependency tree — the live advisory database changes independently of source content, so this is never turbo-wrapped/cached (see turbo.json).
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-and-run
+        with:
+          task: audit
+          command: pnpm audit --audit-level moderate
+
+  # Unused-file/export/dependency detection, scoped to a single-package CLI (not exadex's Next.js monorepo shape) — src/cli.ts and src/resolve.ts (the documented public facade over src/resolve/*) are the only declared entries; everything else knip flags as unused is either genuinely dead or a same-file-only export that should never have carried the `export` keyword in the first place.
+  knip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-and-run
+        with:
+          task: knip
+          command: pnpm knip
+
+  # Runs on every push to main, after the checks above pass. Determines whether the commits since the last tag warrant a new release by Conventional Commits type (see release.config.ts: feat -> minor, fix/perf -> patch, a BREAKING CHANGE footer -> major), and if so, creates and pushes the next vX.Y.Z tag itself -- exactly what used to be a manual `git tag`/`git push` step earlier in this project's life. Deliberately configured to do ONLY version-decision + tagging + changelog generation: @semantic-release/npm runs with npmPublish: false (so it still bumps package.json's version and commits it, but never touches the npm registry), and @semantic-release/github is not loaded at all -- actual npm publishing (OIDC trusted publishing), GitHub Release creation, and the Homebrew/Scoop tap updates all remain this project's own jobs below. Stays bespoke rather than using the setup-and-run composite action: it needs fetch-depth: 0, a GH_TOKEN env var (not the composite action's GITHUB_TOKEN name), and permissions: contents: write, none of which fit the generic single-command shape.
   #
   # The build/publish/verify pipeline below is deliberately NOT a separate tag-triggered workflow run -- a GITHUB_TOKEN-authenticated push never triggers a new run (GitHub's anti-recursion restriction), and that held even for an SSH deploy key registered on this repo, so a tag pushed from here would never have fired a second run anyway. Instead, every downstream job runs later in this SAME run (like this org's other semantic-release repos, e.g. graphle, already do) and gates on `needs.semantic-release.outputs.published`. Unlike graphle's own downstream job, which just redeploys unconditionally on every push to main (an idempotent rebuild, so it never needs to ask "did a release happen"), building five platform binaries, publishing to npm, and updating two external tap repos are NOT safe to run unconditionally -- a no-release push would waste the builds at best and fail the npm publish/tap updates outright at worst (no new tag for them to reference). That "was anything actually tagged" check needs no plugin: after semantic-release runs, `git describe --exact-match --tags HEAD` succeeds only when the just-run HEAD commit is itself tagged.
   semantic-release:
     name: Semantic Release
     if: github.ref == 'refs/heads/main'
-    needs: [check]
+    needs: [lint, typecheck, test, audit, knip]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -57,7 +113,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "26.5.0"
+          node-version-file: .tool-versions
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
@@ -85,7 +141,7 @@ jobs:
   build-arm64:
     name: Build (macOS arm64, verified)
     if: needs.semantic-release.outputs.published == 'true'
-    needs: [check, semantic-release]
+    needs: [semantic-release]
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
@@ -93,15 +149,10 @@ jobs:
         with:
           ref: main
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-and-run
         with:
-          node-version: "26.5.0"
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+          task: build
+          command: pnpm build
 
       - run: mv dist/claude-use-sea dist/claude-use-macos-arm64
       - run: shasum -a 256 dist/claude-use-macos-arm64 | awk '{print $1}' > dist/claude-use-macos-arm64.sha256
@@ -119,7 +170,7 @@ jobs:
   build-x64-best-effort:
     name: Build (macOS x64, best-effort, unverified)
     if: needs.semantic-release.outputs.published == 'true'
-    needs: [check, semantic-release]
+    needs: [semantic-release]
     runs-on: macos-15-intel
     continue-on-error: true
     timeout-minutes: 15
@@ -128,15 +179,10 @@ jobs:
         with:
           ref: main
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-and-run
         with:
-          node-version: "26.5.0"
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+          task: build
+          command: pnpm build
 
       - name: Smoke test (best-effort only — a pass here is not proof of upstream support)
         run: ./dist/claude-use-sea --help || true
@@ -155,22 +201,17 @@ jobs:
   build-linux-x64:
     name: Build (Linux x64, verified)
     if: needs.semantic-release.outputs.published == 'true'
-    needs: [check, semantic-release]
+    needs: [semantic-release]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
           ref: main
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-and-run
         with:
-          node-version: "26.5.0"
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+          task: build
+          command: pnpm build
 
       - run: mv dist/claude-use-sea dist/claude-use-linux-x64
       - run: shasum -a 256 dist/claude-use-linux-x64 | awk '{print $1}' > dist/claude-use-linux-x64.sha256
@@ -185,22 +226,17 @@ jobs:
   build-linux-arm64:
     name: Build (Linux arm64, verified)
     if: needs.semantic-release.outputs.published == 'true'
-    needs: [check, semantic-release]
+    needs: [semantic-release]
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
         with:
           ref: main
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-and-run
         with:
-          node-version: "26.5.0"
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+          task: build
+          command: pnpm build
 
       - run: mv dist/claude-use-sea dist/claude-use-linux-arm64
       - run: shasum -a 256 dist/claude-use-linux-arm64 | awk '{print $1}' > dist/claude-use-linux-arm64.sha256
@@ -216,22 +252,17 @@ jobs:
   build-windows-x64:
     name: Build (Windows x64, verified)
     if: needs.semantic-release.outputs.published == 'true'
-    needs: [check, semantic-release]
+    needs: [semantic-release]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
         with:
           ref: main
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-and-run
         with:
-          node-version: "26.5.0"
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+          task: build
+          command: pnpm build
 
       - name: Package archive
         shell: pwsh
@@ -253,22 +284,17 @@ jobs:
   build-windows-arm64:
     name: Build (Windows arm64, verified)
     if: needs.semantic-release.outputs.published == 'true'
-    needs: [check, semantic-release]
+    needs: [semantic-release]
     runs-on: windows-11-arm
     steps:
       - uses: actions/checkout@v7
         with:
           ref: main
 
-      - uses: pnpm/action-setup@v6
-
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-and-run
         with:
-          node-version: "26.5.0"
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+          task: build
+          command: pnpm build
 
       - name: Package archive
         shell: pwsh
@@ -286,7 +312,7 @@ jobs:
             dist/claude-use-windows-arm64.zip.sha256
           retention-days: 7
 
-  # Publishes the plain esbuild bundle (not a SEA binary — the npm-installed package runs under whatever Node the installer already has) as the `claude-use` npm package, so `npx claude-use` and `npm install -g claude-use` work alongside the GitHub Release binaries above. Uses npm's OIDC trusted publishing, the same pattern this org's other published packages use — no NPM_TOKEN secret. Trusted publishing itself is configured once, out of band, on the package's own npmjs.com settings page (linking this exact repo/workflow as an authorised publisher); nothing in this workflow can set that up.
+  # Publishes the plain esbuild bundle (not a SEA binary — the npm-installed package runs under whatever Node the installer already has) as the `claude-use` npm package, so `npx claude-use` and `npm install -g claude-use` work alongside the GitHub Release binaries above. Uses npm's OIDC trusted publishing, the same pattern this org's other published packages use — no NPM_TOKEN secret. Trusted publishing itself is configured once, out of band, on the package's own npmjs.com settings page (linking this exact repo/workflow as an authorised publisher); nothing in this workflow can set that up. Stays bespoke rather than using the composite action: registry-url must stay unset (see below) and NODE_AUTH_TOKEN must be explicitly blanked, neither of which fits the generic shape.
   publish-npm:
     name: Publish npm package
     if: needs.semantic-release.outputs.published == 'true'
@@ -304,7 +330,7 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "26.5.0"
+          node-version-file: .tool-versions
           cache: pnpm
           # registry-url is deliberately absent. Setting it makes setup-node write an .npmrc containing an _authToken line, and that line wins over the OIDC token exchange -- so the setting that looks like it configures the registry is exactly the one that would stop trusted publishing working.
 
@@ -320,6 +346,7 @@ jobs:
           # Blanked, not omitted -- an inherited NPM_TOKEN/NODE_AUTH_TOKEN would otherwise be used in preference to the OIDC exchange.
           NODE_AUTH_TOKEN: ""
 
+  # Stays bespoke rather than using the composite action: it needs the schema regen+stamp sequence and a multi-artifact download fan-in, neither of which fits a single generic command.
   release:
     name: Publish GitHub Release
     if: >
@@ -343,12 +370,12 @@ jobs:
 
       - uses: actions/setup-node@v7
         with:
-          node-version: "26.5.0"
+          node-version-file: .tool-versions
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
 
-      # Generate schema/*.schema.json fresh (it's already committed, but regenerating here keeps the release build honest — see the CI drift guard in the check job above) then stamp $id to this tag's own version-pinned release URL. This is deliberately distinct from install.sh's unpinned releases/latest/download/... URL: a schema an editor references long-term must stay put at whatever version it was written against.
+      # Generate schema/*.schema.json fresh (it's already committed, but regenerating here keeps the release build honest — see the CI drift guard in the typecheck job above) then stamp $id to this tag's own version-pinned release URL. This is deliberately distinct from install.sh's unpinned releases/latest/download/... URL: a schema an editor references long-term must stay put at whatever version it was written against.
       - run: pnpm schema
       - run: node scripts/stamp-schema-ids.mjs "${{ needs.semantic-release.outputs.tag }}"
 

@@ -11,6 +11,8 @@
     "resolveJsonModule": true,
     "declaration": false,
     "sourceMap": true,
+    "incremental": true,
+    "tsBuildInfoFile": "tsconfig.tsbuildinfo",
     "outDir": "dist",
     "rootDir": "."
   },
@@ -22,7 +24,8 @@
     "eslint.config.ts",
     "commitlint.config.ts",
     "lint-staged.config.mts",
-    "release.config.ts"
+    "release.config.ts",
+    "knip.config.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "globalDependencies": ["pnpm-lock.yaml"],
+  "tasks": {
+    "_lint": {
+      "inputs": ["$TURBO_DEFAULT$", "eslint.config.ts"],
+      "outputs": [".eslintcache"]
+    },
+    "_typecheck": {
+      "inputs": ["$TURBO_DEFAULT$", "tsconfig.json"],
+      "outputs": ["tsconfig.tsbuildinfo"]
+    },
+    "_test": {
+      "inputs": ["src/**", "vitest.config.mts"],
+      "outputs": []
+    },
+    "_test:coverage": {
+      "inputs": ["src/**", "vitest.config.mts"],
+      "outputs": ["coverage/**"]
+    },
+    "_knip": {
+      "inputs": ["$TURBO_DEFAULT$", "knip.config.ts"],
+      "outputs": []
+    },
+    "_build": {
+      "inputs": ["src/**", "scripts/build.mts", "sea-config.json"],
+      "outputs": ["dist/**"]
+    }
+  }
+}

@@ -12,5 +12,12 @@ export default defineConfig({
     env: {
       CLAUDE_USE_HOME: testClaudeUseHome,
     },
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov", "json-summary"],
+      reportsDirectory: "coverage",
+      include: ["src/**/*.ts"],
+      exclude: ["src/**/*.test.ts", "src/test-setup.ts"],
+    },
   },
 });
