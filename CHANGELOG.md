@@ -6,6 +6,144 @@
 
 ## [0.3.2](https://github.com/ExaDev/claude-use/compare/v0.3.1...v0.3.2) (2026-08-03)
 
+### Bug Fixes
+
+* re-dispatch CI against the new tag instead of relying on its push event ([b19a5ba](https://github.com/ExaDev/claude-use/commit/b19a5bac5a35c83e6fb9e36a33cfe703e90a2e98))
+
 ## [0.3.1](https://github.com/ExaDev/claude-use/compare/v0.3.0...v0.3.1) (2026-08-02)
 
+### Bug Fixes
+
+* point semantic-release at the SSH remote so it uses the deploy key ([ec9ff49](https://github.com/ExaDev/claude-use/commit/ec9ff49cceef95888cf2ee0de8f3453aeb72c666))
+* use a deploy key so semantic-release's tag push triggers the release pipeline ([c11cda3](https://github.com/ExaDev/claude-use/commit/c11cda35cc1dbd621de8796fec18bfd952620140))
+
 ## [0.3.0](https://github.com/ExaDev/claude-use/compare/v0.2.10...v0.3.0) (2026-08-02)
+
+### Features
+
+* automate version decisions and changelog via semantic-release ([bb1b8a3](https://github.com/ExaDev/claude-use/commit/bb1b8a3bec0f99ff2300e843618002c95000fbea))
+
+## [0.2.10](https://github.com/ExaDev/claude-use/compare/v0.2.9...v0.2.10) (2026-08-02)
+
+### Bug Fixes
+
+* install macOS x64 via npm in install.sh too, matching Homebrew ([0eb58aa](https://github.com/ExaDev/claude-use/commit/0eb58aa084f0c0feb3d4d0f849bd78b778fb573b)), references [nodejs/node#62893](https://github.com/nodejs/node/issues/62893) [#59553](https://github.com/ExaDev/claude-use/issues/59553)
+
+## [0.2.9](https://github.com/ExaDev/claude-use/compare/v0.2.8...v0.2.9) (2026-08-02)
+
+### Bug Fixes
+
+* install macOS x64 Homebrew via npm instead of the broken SEA binary ([6f2f406](https://github.com/ExaDev/claude-use/commit/6f2f4068dbc9743df8d0c5528c6eabe1d416fe51)), references [nodejs/node#62893](https://github.com/nodejs/node/issues/62893) [nodejs/node#59553](https://github.com/nodejs/node/issues/59553)
+
+## [0.2.8](https://github.com/ExaDev/claude-use/compare/v0.2.7...v0.2.8) (2026-08-02)
+
+## [0.2.7](https://github.com/ExaDev/claude-use/compare/v0.2.6...v0.2.7) (2026-08-02)
+
+## [0.2.6](https://github.com/ExaDev/claude-use/compare/v0.2.5...v0.2.6) (2026-08-02)
+
+### Bug Fixes
+
+* recognise claude.exe when dispatching launcher vs CLI mode ([7766b26](https://github.com/ExaDev/claude-use/commit/7766b260cbaad4333a17ccf0e1e2a2c92f10ab6c))
+
+## [0.2.5](https://github.com/ExaDev/claude-use/compare/v0.2.4...v0.2.5) (2026-08-02)
+
+## [0.2.4](https://github.com/ExaDev/claude-use/compare/v0.2.3...v0.2.4) (2026-08-02)
+
+### Bug Fixes
+
+* hardlink the real running binary, not a PATH-visible proxy ([1a743bc](https://github.com/ExaDev/claude-use/commit/1a743bc7a251755ce1bf0549096ebeed3beb16f6))
+
+## [0.2.3](https://github.com/ExaDev/claude-use/compare/v0.2.2...v0.2.3) (2026-08-02)
+
+### Bug Fixes
+
+* use PATHEXT extension matching, not mode bits, on Windows ([5bb9ccd](https://github.com/ExaDev/claude-use/commit/5bb9ccdcfe60bc55e54ff2b15377eea1e889061e))
+
+## [0.2.2](https://github.com/ExaDev/claude-use/compare/v0.2.1...v0.2.2) (2026-08-02)
+
+### Bug Fixes
+
+* redirect shim placement when invoked through a re-exec wrapper ([daffb25](https://github.com/ExaDev/claude-use/commit/daffb259c1d8a27c5a2842047523c7e213d6f141))
+
+## [0.2.1](https://github.com/ExaDev/claude-use/compare/v0.2.0...v0.2.1) (2026-08-01)
+
+### Bug Fixes
+
+* resolve own executable path via PATH search, not raw argv[1] ([7bd14c6](https://github.com/ExaDev/claude-use/commit/7bd14c62e44e31c8eee48f693fd762904d672283))
+
+## [0.2.0](https://github.com/ExaDev/claude-use/compare/v0.1.1...v0.2.0) (2026-08-01)
+
+### Features
+
+* add claude-use doctor, a whole-tree config-graph audit ([e770287](https://github.com/ExaDev/claude-use/commit/e770287fa94d31977330d69ac096daa3d8e33013))
+* add claude-use shim enable/disable ([b97d65d](https://github.com/ExaDev/claude-use/commit/b97d65d8efefe7b5903ae478caf51c80f921666f))
+* **cli:** add claude-use run to reach the launcher without a claude binary ([3759744](https://github.com/ExaDev/claude-use/commit/3759744edeb69efd281f17c2621945c96033b06e))
+* **paths:** add claude-shim.json to LayoutPaths ([bc92e8b](https://github.com/ExaDev/claude-use/commit/bc92e8bdb6cc93c5d1668c2b223187f27024b97a))
+* wire claude-use shim into cli.ts and doctor.ts ([6c8c023](https://github.com/ExaDev/claude-use/commit/6c8c0239c6df2f6c776e2e23a7273dd31c372229))
+
+### Bug Fixes
+
+* **build:** replace error cast with a type guard, preserve the cause ([2c68c9e](https://github.com/ExaDev/claude-use/commit/2c68c9e0e00353a640adf6769bf69621f449a081))
+* **claudeShim:** place the shim next to the executable as invoked ([4752261](https://github.com/ExaDev/claude-use/commit/4752261f423dbf9c01378d719aeda981a2b174ba))
+* **config:** replace type assertions with guards and narrower types ([2511000](https://github.com/ExaDev/claude-use/commit/2511000cc126ef382d3735bcac8e758a19f4c293))
+* **configure:** verify clack results instead of casting them back to Value ([f95e109](https://github.com/ExaDev/claude-use/commit/f95e10992bef14a1e38e2630cd7d92e657773003))
+* drop claude from the npm package's bin field ([ab1e9a7](https://github.com/ExaDev/claude-use/commit/ab1e9a7167a4c6e0e5a63a57ce9a3c071123153b))
+* **launcher:** remove redundant casts and empty fake lock sleeps ([1c3cb42](https://github.com/ExaDev/claude-use/commit/1c3cb42e96c4e7256a5d065a0de19c6f0879f27b))
+* remove redundant casts in realPorts and directoryRules ([5010709](https://github.com/ExaDev/claude-use/commit/5010709cbb0b82945e5537a32adbd8010a91446e))
+* **resolve:** drop unused imports, a stale cast, and a dead assignment ([6405a07](https://github.com/ExaDev/claude-use/commit/6405a07d22336a40615b6d1fdca0411d1a0d569b))
+
+## [0.1.1](https://github.com/ExaDev/claude-use/compare/v0.1.0...v0.1.1) (2026-08-01)
+
+### Bug Fixes
+
+* use the explicit npx command form to work around an npm bin-resolution bug ([4ce7f0e](https://github.com/ExaDev/claude-use/commit/4ce7f0ec1d99697cdbbfffd391d23b3d61cc1c00))
+
+## 0.1.0 (2026-08-01)
+
+### Features
+
+* add a placeholder CLI entrypoint for SEA packaging proof-of-concept ([be3407e](https://github.com/ExaDev/claude-use/commit/be3407eefe09e5ce7afe5c988e8337559159e1d9))
+* add CLAUDE_USE_HOME-aware path resolution ([06c0806](https://github.com/ExaDev/claude-use/commit/06c0806dcdb2306c3646bb9436c159b5faf0e371))
+* add claude-use check dry-run cascade inspector ([90ced3f](https://github.com/ExaDev/claude-use/commit/90ced3fc133c334966a280624f2e2297347eeae8))
+* add claude-use identity subcommands ([0d1a871](https://github.com/ExaDev/claude-use/commit/0d1a871e3f744b28e85cb295b3dd5e3a2e25caac))
+* add claude-use profile subcommands ([70385fb](https://github.com/ExaDev/claude-use/commit/70385fbc8935cdd5c36fed302627a0e577d8d7ed))
+* add claude-use rules subcommands ([442083d](https://github.com/ExaDev/claude-use/commit/442083de7be4c1fc0e5afa5ee4ec375cf3544050))
+* add injectable launcher ports for filesystem, spawn, process, and logging ([859c401](https://github.com/ExaDev/claude-use/commit/859c401deebd39faa7573472a88f50d0648cb1ef))
+* add version discovery with PATH fallback ([a7ce649](https://github.com/ExaDev/claude-use/commit/a7ce64986a14ae6af55969a99389a4cceef367d8))
+* build a Node SEA binary with the stable --build-sea command ([e7db11a](https://github.com/ExaDev/claude-use/commit/e7db11a53be1a3e455925823e4807a49588c8d0d))
+* build a one-off cascade override from CLI flags and env vars ([815005e](https://github.com/ExaDev/claude-use/commit/815005e80d2eb31a93f7af5688129365f6dbe202))
+* build, reconcile, and atomically swap an identity's symlink farm ([7642f36](https://github.com/ExaDev/claude-use/commit/7642f36faf3ca426ec95db0dcbaecbbc26d6d390))
+* classify ~/.claude entries against the shipped category map ([fecac4a](https://github.com/ExaDev/claude-use/commit/fecac4a3bdc02da882d446c6eaabad5efba75975))
+* **cli:** add comma-separated key=value pair parsers ([7da1cab](https://github.com/ExaDev/claude-use/commit/7da1cab2afbc4a7a2029ec837762e12f0711e0f7))
+* **config:** add atomic JSON store with read/write/patch helpers ([c2e67f8](https://github.com/ExaDev/claude-use/commit/c2e67f8ea37dc64f0dbb9cae68ecd5de853dc631))
+* **configure:** add interactive claude-use configure command ([bd0d486](https://github.com/ExaDev/claude-use/commit/bd0d486cf65672b02a88c30644fb5120b03cd68b))
+* decide which identity and config profile a launch resolves to ([4bce045](https://github.com/ExaDev/claude-use/commit/4bce045f0961bfa6cc470a1569279c6b7283505a))
+* define Zod schemas for every claude-use configuration file ([e3aca0e](https://github.com/ExaDev/claude-use/commit/e3aca0e1e4072e79234e10629c43c4632bd0d4b3))
+* detect and refuse ambient credentials that would bypass identity isolation ([bf9da22](https://github.com/ExaDev/claude-use/commit/bf9da226bf6c202451dec7d66c127e8ac60f7042))
+* dispatch cli.ts to the launcher or the claude-use Commander tree ([af9377d](https://github.com/ExaDev/claude-use/commit/af9377da9271b2634b53682f9445dd86bfb4f458))
+* encode real paths into ~/.claude/projects/ directory names ([d91de21](https://github.com/ExaDev/claude-use/commit/d91de212bec790e079180d7c6401dd9e021dee4c))
+* expose claude-use --version via Commander ([171a46e](https://github.com/ExaDev/claude-use/commit/171a46e8acc2008886633313b48fba8ac6278254))
+* expose the resolver through one facade and cover the cascade ([4c4cbda](https://github.com/ExaDev/claude-use/commit/4c4cbdaf1bd86cb2dd9a16ecd5b7fbda157d5da4))
+* generate and publish JSON Schemas from Zod config schemas ([12edf2e](https://github.com/ExaDev/claude-use/commit/12edf2e5047012209d154b7bd8bfdf55f1ed01a6))
+* install the built SEA binary as both claude and claude-use ([e582fa2](https://github.com/ExaDev/claude-use/commit/e582fa260f216cc41b8a0654f43d70ab832a4240))
+* linearise extends graphs and assemble the directory cascade ([bcb4515](https://github.com/ExaDev/claude-use/commit/bcb45153ca86c77ebf990849f0de74247b12b1dd))
+* load config files by exact path with explicit entries key ordering ([a4acf2d](https://github.com/ExaDev/claude-use/commit/a4acf2d29bbc66507b71c0f45cd1c58cd90baa5b))
+* load every config file one launch's cascade is assembled from ([abd493a](https://github.com/ExaDev/claude-use/commit/abd493af80deb9cf0f998848cba0018a717742e5))
+* make the esbuild bundle publishable as an npm bin package ([50771b0](https://github.com/ExaDev/claude-use/commit/50771b0398a547ae8d4f1ae46027a2441650b93b))
+* orchestrate one claude launch through guard, identity, and flag resolution ([4bcdeca](https://github.com/ExaDev/claude-use/commit/4bcdeca9a3460cc836bba478c09a4de6e87c9374))
+* parse --config-profile/--category/--share/--hide from launcher argv ([8577f79](https://github.com/ExaDev/claude-use/commit/8577f79738cbbeced0ec06f2f65df3739222df32))
+* parse a leading [@name](https://github.com/name) identity token from launcher argv ([cffb339](https://github.com/ExaDev/claude-use/commit/cffb339b57a271398e3d1608c95482ac63e919ed))
+* plan the symlink farm and reconcile data written into it ([fe65734](https://github.com/ExaDev/claude-use/commit/fe6573496341acdd48aca9d414f5a5df0a9cc42b))
+* rank entries rules by a total specificity order, layer first ([662ca70](https://github.com/ExaDev/claude-use/commit/662ca702817447567b3ab281ad08dd536d89aa27))
+* refuse to launch when an ambient credential would bypass identity isolation ([9151762](https://github.com/ExaDev/claude-use/commit/9151762c884a30cde2e368e60dce1b382b9997cf))
+* resolve a cascade to per-entry sharing decisions in two phases ([fd5b085](https://github.com/ExaDev/claude-use/commit/fd5b08586aa315fac2fb406bc34d6c39c876c400))
+* resolve launch flags and assemble the spawned binary's argv and env ([6194296](https://github.com/ExaDev/claude-use/commit/6194296237b3e8acd2f4aeb587923b5795d69a47))
+* resync the active identity's farm on every claude launch ([335af65](https://github.com/ExaDev/claude-use/commit/335af650e353a4c28a79dd1b53b7577d6e06cabf))
+* serialise concurrent farm resyncs of one identity behind a lock file ([d6b7862](https://github.com/ExaDev/claude-use/commit/d6b786241546ce8892e9b66d8f9d5980c79bf835))
+* spawn the real claude binary and propagate its exit code ([7144517](https://github.com/ExaDev/claude-use/commit/71445176e51a4656dece81a77f6381a14a5c2301))
+* split CLAUDE_EXTRA_FLAGS into multiple forwarded argv entries ([a0f4e29](https://github.com/ExaDev/claude-use/commit/a0f4e293b21c0affd90f380d65471d626adce16d))
+* thread one-off --category/--share/--hide overrides into the farm resync ([4690615](https://github.com/ExaDev/claude-use/commit/4690615c9541a69fcee2997b347215cd8ca9fe87))
+
+### Bug Fixes
+
+* make install.sh actually download the release binary it installs ([c176320](https://github.com/ExaDev/claude-use/commit/c176320fd2fbf2e0a70e5aaf47c0ad15015526b1))
