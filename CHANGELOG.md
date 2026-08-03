@@ -1,3 +1,9 @@
+## [0.3.4](https://github.com/ExaDev/claude-use/compare/v0.3.3...v0.3.4) (2026-08-03)
+
+### Bug Fixes
+
+* make the Turbo cache key unique per CI run ([660fd3d](https://github.com/ExaDev/claude-use/commit/660fd3d46bbe25bf28722520cb53fa2db7dc299e))
+
 ## [0.3.3](https://github.com/ExaDev/claude-use/compare/v0.3.2...v0.3.3) (2026-08-03)
 
 ### Bug Fixes
