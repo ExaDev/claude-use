@@ -1,3 +1,9 @@
+## [0.3.6](https://github.com/ExaDev/claude-use/compare/v0.3.5...v0.3.6) (2026-08-03)
+
+### Bug Fixes
+
+* stop trying to override the reserved GITHUB_REF_NAME variable ([e14e733](https://github.com/ExaDev/claude-use/commit/e14e73302861f684ec82195f29baf523a6bc6f57))
+
 ## [0.3.5](https://github.com/ExaDev/claude-use/compare/v0.3.4...v0.3.5) (2026-08-03)
 
 ### Bug Fixes
