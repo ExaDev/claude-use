@@ -21,7 +21,8 @@
     "vitest.config.mts",
     "eslint.config.ts",
     "commitlint.config.ts",
-    "lint-staged.config.mts"
+    "lint-staged.config.mts",
+    "release.config.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

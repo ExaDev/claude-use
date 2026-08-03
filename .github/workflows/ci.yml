@@ -3,7 +3,6 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -35,9 +34,9 @@ jobs:
       - run: pnpm schema
       - run: git diff --exit-code schema/
 
-  # Runs on every push to main (not tag pushes -- github.ref is refs/tags/vX.Y.Z there, not refs/heads/main), after `check` passes. Determines whether the commits since the last tag warrant a new release by Conventional Commits type (see .releaserc.json: feat -> minor, fix/perf -> patch, a BREAKING CHANGE footer -> major), and if so, creates and pushes the next vX.Y.Z tag itself -- exactly what used to be a manual `git tag`/`git push` step earlier in this project's life. Deliberately configured to do ONLY version-decision + tagging + changelog generation: @semantic-release/npm runs with npmPublish: false (so it still bumps package.json's version and commits it, but never touches the npm registry), and @semantic-release/github is not loaded at all -- actual npm publishing (OIDC trusted publishing), GitHub Release creation (with this project's own multi-platform asset list and release notes body), and the Homebrew/Scoop tap updates all remain this project's own existing tag-triggered jobs below, completely unchanged.
+  # Runs on every push to main, after `check` passes. Determines whether the commits since the last tag warrant a new release by Conventional Commits type (see release.config.ts: feat -> minor, fix/perf -> patch, a BREAKING CHANGE footer -> major), and if so, creates and pushes the next vX.Y.Z tag itself -- exactly what used to be a manual `git tag`/`git push` step earlier in this project's life. Deliberately configured to do ONLY version-decision + tagging + changelog generation: @semantic-release/npm runs with npmPublish: false (so it still bumps package.json's version and commits it, but never touches the npm registry), and @semantic-release/github is not loaded at all -- actual npm publishing (OIDC trusted publishing), GitHub Release creation, and the Homebrew/Scoop tap updates all remain this project's own jobs below.
   #
-  # A GITHUB_TOKEN-authenticated push never triggers a new workflow run (GitHub's anti-recursion restriction) -- confirmed empirically for both the plain GITHUB_TOKEN and an SSH deploy key registered on this repo, so the tag this job pushes would otherwise never fire the build/publish/verify pipeline below. workflow_dispatch is explicitly exempt from that restriction, so .releaserc.json's @semantic-release/exec plugin re-dispatches this same workflow against the new tag directly (`gh workflow run ci.yml --ref ${nextRelease.gitTag}`) in its `success` hook, which only fires once semantic-release has actually created a release -- a no-op run (nothing to release) skips it entirely.
+  # The build/publish/verify pipeline below is deliberately NOT a separate tag-triggered workflow run -- a GITHUB_TOKEN-authenticated push never triggers a new run (GitHub's anti-recursion restriction), and that held even for an SSH deploy key registered on this repo, so a tag pushed from here would never have fired a second run anyway. Instead, every downstream job runs later in this SAME run (like this org's other semantic-release repos, e.g. graphle, already do) and gates on `needs.semantic-release.outputs.published`. Unlike graphle's own downstream job, which just redeploys unconditionally on every push to main (an idempotent rebuild, so it never needs to ask "did a release happen"), building five platform binaries, publishing to npm, and updating two external tap repos are NOT safe to run unconditionally -- a no-release push would waste the builds at best and fail the npm publish/tap updates outright at worst (no new tag for them to reference). That "was anything actually tagged" check needs no plugin: after semantic-release runs, `git describe --exact-match --tags HEAD` succeeds only when the just-run HEAD commit is itself tagged.
   semantic-release:
     name: Semantic Release
     if: github.ref == 'refs/heads/main'
@@ -45,7 +44,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: write
+    outputs:
+      published: ${{ steps.check-tag.outputs.published }}
+      version: ${{ steps.check-tag.outputs.version }}
+      tag: ${{ steps.check-tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -64,17 +66,32 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Everything below this point is the release pipeline, gated to tag pushes only ("v*") — the jobs above already validate every ordinary push and PR, so a tag push is the only time this project builds five platform binaries, publishes npm, and updates two external tap repos.
+      - id: check-tag
+        name: Check whether semantic-release just tagged a release
+        run: |
+          if tag=$(git describe --exact-match --tags HEAD 2>/dev/null); then
+            {
+              echo "published=true"
+              echo "tag=$tag"
+              echo "version=${tag#v}"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Everything below this point only runs once semantic-release has actually tagged a release -- the jobs above already validate every ordinary push and PR, so a release being published is the only time this project builds five platform binaries, publishes npm, and updates two external tap repos. All of it runs in this SAME workflow run (see the semantic-release job's own comment above for why), so every job below checks out `ref: main`, not the triggering commit, to build from the post-release HEAD semantic-release just pushed.
 
   # macOS arm64 is the only target Node core itself tests and verifies `--build-sea` against upstream. This job's binary is the one this project actually stands behind. Runs on GitHub's standard hosted `macos-latest` (Apple Silicon by default) -- this repo is public, so standard hosted runners are free and unmetered on every plan, and GitHub manages the rolling image migration this label implies, so there's no version-pinned image for this project to keep bumping as older ones deprecate.
   build-arm64:
     name: Build (macOS arm64, verified)
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [check]
+    if: needs.semantic-release.outputs.published == 'true'
+    needs: [check, semantic-release]
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: main
 
       - uses: pnpm/action-setup@v6
 
@@ -101,13 +118,15 @@ jobs:
   # Confirmed as of v0.2.7/v0.2.8: this binary segfaults on every invocation, including --version and --help -- the smoke test below has been silently swallowing this exact crash via `|| true` on every prior release; verify-tap-macos-x64/verify-install-script-macos-x64 (continue-on-error, further down this file) are what actually caught it. Reproduced locally under Rosetta with a real lldb backtrace (EXC_BAD_ACCESS in __cxx_global_var_init during dyld's static-initializer pass, before main() runs) and isolated to Node's own --build-sea via a trivial one-line script crashing identically -- not this project's bundle, build script, or code. This is a known, unfixed upstream limitation: nodejs/node#62893 reproduces the identical crash and was closed doc-only (nodejs/node#63181); the deeper thread nodejs/node#59553 floats an unconfirmed theory (postject's LIEF-based Mach-O injection corrupting the binary so dyld misreads a segment as oversized TLS) but closed stale, with a Node core maintainer stating it's "unlikely that anyone would invest time in fixing it for macOS" given x64 macOS's Tier 2 deprioritisation. No workaround is available in this project's control (no alternate codesign invocation, sea-config.json option, or Node flag) -- see README.md's "Build (Node SEA)" section for the full writeup.
   build-x64-best-effort:
     name: Build (macOS x64, best-effort, unverified)
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [check]
+    if: needs.semantic-release.outputs.published == 'true'
+    needs: [check, semantic-release]
     runs-on: macos-15-intel
     continue-on-error: true
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: main
 
       - uses: pnpm/action-setup@v6
 
@@ -135,11 +154,13 @@ jobs:
   # Linux is tested by Node core against every distribution it supports except Alpine, and every architecture except s390x — x64 and arm64 are both fully within that verified set, unlike macOS x64 above.
   build-linux-x64:
     name: Build (Linux x64, verified)
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [check]
+    if: needs.semantic-release.outputs.published == 'true'
+    needs: [check, semantic-release]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: main
 
       - uses: pnpm/action-setup@v6
 
@@ -163,11 +184,13 @@ jobs:
 
   build-linux-arm64:
     name: Build (Linux arm64, verified)
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [check]
+    if: needs.semantic-release.outputs.published == 'true'
+    needs: [check, semantic-release]
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: main
 
       - uses: pnpm/action-setup@v6
 
@@ -192,11 +215,13 @@ jobs:
   # Node core documents full Windows support for --build-sea, unlike the macOS x64 caveat above.
   build-windows-x64:
     name: Build (Windows x64, verified)
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [check]
+    if: needs.semantic-release.outputs.published == 'true'
+    needs: [check, semantic-release]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: main
 
       - uses: pnpm/action-setup@v6
 
@@ -227,11 +252,13 @@ jobs:
   # Node's own SEA docs list Windows as regularly tested without the x64-only carve-out that explicitly excludes macOS x64 above -- Windows arm64 is a fully verified target from day one, not a best-effort one. windows-11-arm is GitHub's standard hosted Windows-on-Arm runner, generally available and free for this public repo like every other standard runner.
   build-windows-arm64:
     name: Build (Windows arm64, verified)
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [check]
+    if: needs.semantic-release.outputs.published == 'true'
+    needs: [check, semantic-release]
     runs-on: windows-11-arm
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: main
 
       - uses: pnpm/action-setup@v6
 
@@ -262,14 +289,16 @@ jobs:
   # Publishes the plain esbuild bundle (not a SEA binary — the npm-installed package runs under whatever Node the installer already has) as the `claude-use` npm package, so `npx claude-use` and `npm install -g claude-use` work alongside the GitHub Release binaries above. Uses npm's OIDC trusted publishing, the same pattern this org's other published packages use — no NPM_TOKEN secret. Trusted publishing itself is configured once, out of band, on the package's own npmjs.com settings page (linking this exact repo/workflow as an authorised publisher); nothing in this workflow can set that up.
   publish-npm:
     name: Publish npm package
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: needs.semantic-release.outputs.published == 'true'
     runs-on: ubuntu-latest
-    needs: [build-arm64]
+    needs: [semantic-release, build-arm64]
     permissions:
       contents: read # declaring `permissions:` at all replaces every default, including the read access actions/checkout needs -- this isn't optional just because id-token is the "new" one being added
       id-token: write # OIDC identity for npm trusted publishing (no NPM_TOKEN)
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: main
 
       - uses: pnpm/action-setup@v6
 
@@ -284,9 +313,6 @@ jobs:
       - name: Upgrade npm for OIDC trusted publishing (needs npm CLI >=11.5.1)
         run: npm install -g npm@latest
 
-      - name: Set package version from the pushed tag
-        run: npm pkg set version="${GITHUB_REF_NAME#v}"
-
       - run: pnpm build:bundle
 
       - run: npm publish
@@ -297,19 +323,21 @@ jobs:
   release:
     name: Publish GitHub Release
     if: >
-      startsWith(github.ref, 'refs/tags/v') &&
+      needs.semantic-release.outputs.published == 'true' &&
       always() &&
       needs.build-arm64.result == 'success' &&
       needs.build-linux-x64.result == 'success' &&
       needs.build-linux-arm64.result == 'success' &&
       needs.build-windows-x64.result == 'success' &&
       needs.build-windows-arm64.result == 'success'
-    needs: [build-arm64, build-x64-best-effort, build-linux-x64, build-linux-arm64, build-windows-x64, build-windows-arm64]
+    needs: [semantic-release, build-arm64, build-x64-best-effort, build-linux-x64, build-linux-arm64, build-windows-x64, build-windows-arm64]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: main
 
       - uses: pnpm/action-setup@v6
 
@@ -322,7 +350,7 @@ jobs:
 
       # Generate schema/*.schema.json fresh (it's already committed, but regenerating here keeps the release build honest — see the CI drift guard in the check job above) then stamp $id to this tag's own version-pinned release URL. This is deliberately distinct from install.sh's unpinned releases/latest/download/... URL: a schema an editor references long-term must stay put at whatever version it was written against.
       - run: pnpm schema
-      - run: node scripts/stamp-schema-ids.mjs "${GITHUB_REF_NAME}"
+      - run: node scripts/stamp-schema-ids.mjs "${{ needs.semantic-release.outputs.tag }}"
 
       - uses: actions/download-artifact@v8
         with:
@@ -360,6 +388,8 @@ jobs:
 
       - uses: softprops/action-gh-release@v3
         with:
+          # Explicit, not inferred from github.ref -- this run was triggered by the push to main, not a tag push, so github.ref is refs/heads/main here.
+          tag_name: ${{ needs.semantic-release.outputs.tag }}
           files: |
             artifacts/claude-use-macos-arm64
             artifacts/claude-use-macos-arm64.sha256
@@ -391,8 +421,8 @@ jobs:
   # Regenerates ExaDev/homebrew-claude-use's Formula/claude-use.rb from this release's own published checksums. See that repo's README for the deploy-key setup this depends on.
   update-tap:
     name: Update Homebrew tap
-    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
-    needs: [release, build-arm64, build-linux-x64, build-linux-arm64, publish-npm]
+    if: needs.semantic-release.outputs.published == 'true' && needs.release.result == 'success'
+    needs: [semantic-release, release, build-arm64, build-linux-x64, build-linux-arm64, publish-npm]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout tap via SSH deploy key
@@ -403,7 +433,7 @@ jobs:
 
       - name: Download and validate checksums
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.semantic-release.outputs.tag }}
         run: |
           TAG_URL="https://github.com/ExaDev/claude-use/releases/download/${TAG}"
           VERSION="${TAG#v}"
@@ -432,7 +462,7 @@ jobs:
 
       - name: Generate formula
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.semantic-release.outputs.tag }}
         run: |
           VERSION="${TAG#v}"
           MACOS_ARM_SHA=$(cat sha-macos-arm64)
@@ -502,14 +532,14 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add Formula/claude-use.rb
-          git diff --cached --quiet || git commit -m "chore: update formula to ${{ github.ref_name }}"
+          git diff --cached --quiet || git commit -m "chore: update formula to ${{ needs.semantic-release.outputs.tag }}"
           git push
 
   # Regenerates ExaDev/scoop-claude-use's bucket/claude-use.json from this release's own published checksum. See that repo's README for the deploy-key setup this depends on.
   update-scoop:
     name: Update Scoop bucket
-    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
-    needs: [release, build-windows-x64, build-windows-arm64]
+    if: needs.semantic-release.outputs.published == 'true' && needs.release.result == 'success'
+    needs: [semantic-release, release, build-windows-x64, build-windows-arm64]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout bucket via SSH deploy key
@@ -520,7 +550,7 @@ jobs:
 
       - name: Download and validate checksums
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.semantic-release.outputs.tag }}
         run: |
           TAG_URL="https://github.com/ExaDev/claude-use/releases/download/${TAG}"
           curl -sL --fail --retry 6 --retry-delay 5 --retry-all-errors \
@@ -538,7 +568,7 @@ jobs:
 
       - name: Generate manifest
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.semantic-release.outputs.tag }}
         run: |
           VERSION="${TAG#v}"
           WINDOWS_SHA=$(cat sha-windows-x64)
@@ -582,14 +612,16 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add bucket/claude-use.json
-          git diff --cached --quiet || git commit -m "chore: update manifest to ${{ github.ref_name }}"
+          git diff --cached --quiet || git commit -m "chore: update manifest to ${{ needs.semantic-release.outputs.tag }}"
           git push
 
   verify-tap-macos:
     name: Verify Homebrew install (macOS)
-    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
-    needs: [release, update-tap]
+    if: needs.semantic-release.outputs.published == 'true' && needs.release.result == 'success'
+    needs: [semantic-release, release, update-tap]
     runs-on: macos-latest
+    env:
+      GITHUB_REF_NAME: ${{ needs.semantic-release.outputs.tag }}
     steps:
       - name: Tap and install
         run: |
@@ -634,9 +666,11 @@ jobs:
   # macOS x64's Node SEA binary segfaults on every invocation (a known, unfixed upstream Node bug -- see README.md's "Build (Node SEA)" section) so the Homebrew formula installs via npm + a Homebrew-managed Node for this one architecture instead (see update-tap's own Generate formula step) -- the same code this project already publishes and verifies on the npm channel elsewhere, not the broken SEA binary. That makes this a normal, blocking verify job like every other channel: a failure here is a real bug in this project's own npm-wrapped formula, not Node's upstream SEA limitation.
   verify-tap-macos-x64:
     name: Verify Homebrew install (macOS x64)
-    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
-    needs: [release, update-tap]
+    if: needs.semantic-release.outputs.published == 'true' && needs.release.result == 'success'
+    needs: [semantic-release, release, update-tap]
     runs-on: macos-15-intel
+    env:
+      GITHUB_REF_NAME: ${{ needs.semantic-release.outputs.tag }}
     steps:
       - name: Tap and install
         run: |
@@ -680,13 +714,15 @@ jobs:
 
   verify-tap-linux:
     name: Verify Homebrew install (Linux, ${{ matrix.os }})
-    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
-    needs: [release, update-tap]
+    if: needs.semantic-release.outputs.published == 'true' && needs.release.result == 'success'
+    needs: [semantic-release, release, update-tap]
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
+    env:
+      GITHUB_REF_NAME: ${{ needs.semantic-release.outputs.tag }}
     steps:
       - name: Install Homebrew on Linux
         run: |
@@ -738,13 +774,15 @@ jobs:
 
   verify-scoop:
     name: Verify Scoop install (${{ matrix.os }})
-    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
-    needs: [release, update-scoop]
+    if: needs.semantic-release.outputs.published == 'true' && needs.release.result == 'success'
+    needs: [semantic-release, release, update-scoop]
     strategy:
       fail-fast: false
       matrix:
         os: [windows-latest, windows-11-arm]
     runs-on: ${{ matrix.os }}
+    env:
+      GITHUB_REF_NAME: ${{ needs.semantic-release.outputs.tag }}
     steps:
       - name: Install Scoop
         shell: pwsh
@@ -804,13 +842,15 @@ jobs:
   # Confirms `npx claude-use` genuinely works post-publish, on all three platforms — unlike the Homebrew/Scoop verify jobs above, this one channel is meant to work everywhere, so it gets a matrix rather than one job per OS. GitHub-hosted Windows runners ship Git Bash, so `shell: bash` here needs no PowerShell-specific branching.
   verify-npm:
     name: Verify npm install (${{ matrix.os }})
-    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
-    needs: [release, publish-npm]
+    if: needs.semantic-release.outputs.published == 'true' && needs.release.result == 'success'
+    needs: [semantic-release, release, publish-npm]
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
+    env:
+      GITHUB_REF_NAME: ${{ needs.semantic-release.outputs.tag }}
     steps:
       - name: Run via npx and check version
         shell: bash
@@ -883,13 +923,15 @@ jobs:
   # There is no other CI coverage of install.sh itself at all -- every other verify job exercises a package manager's own install mechanism, never the plain curl script most users will actually run first.
   verify-install-script:
     name: Verify install.sh (${{ matrix.os }})
-    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
-    needs: [release]
+    if: needs.semantic-release.outputs.published == 'true' && needs.release.result == 'success'
+    needs: [semantic-release, release]
     strategy:
       fail-fast: false
       matrix:
         os: [macos-latest, ubuntu-latest, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
+    env:
+      GITHUB_REF_NAME: ${{ needs.semantic-release.outputs.tag }}
     steps:
       - name: Download and run install.sh into a scratch directory
         run: |
@@ -934,9 +976,11 @@ jobs:
   # macOS x64's SEA binary segfaults on every invocation (a known, unfixed upstream Node bug -- see README.md's "Build (Node SEA)" section) so install.sh gives that one architecture a genuinely different path: npm install into a scratch prefix, then copy the resulting bin script into place, matching the Homebrew formula's own workaround. needs publish-npm (not just release) since it installs whatever npm currently resolves as @latest for the claude-use package -- running before that publish completes would install a stale, previously-published version and fail the tag-match check below for an unrelated reason.
   verify-install-script-macos-x64:
     name: Verify install.sh (macOS x64)
-    if: startsWith(github.ref, 'refs/tags/v') && needs.release.result == 'success'
-    needs: [release, publish-npm]
+    if: needs.semantic-release.outputs.published == 'true' && needs.release.result == 'success'
+    needs: [semantic-release, release, publish-npm]
     runs-on: macos-15-intel
+    env:
+      GITHUB_REF_NAME: ${{ needs.semantic-release.outputs.tag }}
     steps:
       - name: Download and run install.sh into a scratch directory
         run: |
