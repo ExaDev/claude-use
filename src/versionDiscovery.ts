@@ -38,7 +38,7 @@ export interface DiscoveredClaudeBinary {
 }
 
 /** The default versions directory, matching the legacy bash tool's own layout. */
-export function defaultVersionsDir(): string {
+function defaultVersionsDir(): string {
   return path.join(os.homedir(), ".local", "share", "claude", "versions");
 }
 

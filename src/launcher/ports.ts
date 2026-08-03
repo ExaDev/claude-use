@@ -11,7 +11,7 @@ export interface FsPort {
 }
 
 /** What one node of a tree is, as reported by an `lstat` that never follows symlinks. */
-export type FarmNodeKind = "dir" | "file" | "symlink";
+type FarmNodeKind = "dir" | "file" | "symlink";
 
 /** The subset of stat information the farm builder and the fact builder actually read. */
 export interface FarmStat {
@@ -70,7 +70,7 @@ export interface SpawnPort {
 }
 
 /** The outcome of one synchronous external-command run (distinct from `SpawnPort`, which is specifically for replacing this process with the real `claude` binary — `RunPort` is for auxiliary commands like `git rev-parse` for branch detection, or `security find-generic-password` for the macOS Keychain diagnostic in `check.ts`, whose output this process needs to keep running and read). */
-export interface RunResult {
+interface RunResult {
   readonly status: number | null;
   readonly stdout: string;
   readonly stderr: string;
@@ -79,11 +79,6 @@ export interface RunResult {
 /** Runs an external command and captures its output, injected so no test ever shells out for real. Not used by this phase's own modules yet — declared here so every later module (branch-conditioned `when` evaluation, `check.ts`'s Keychain lookup) shares one injectable shape rather than each inventing its own. */
 export interface RunPort {
   readonly run: (command: string, args: readonly string[]) => RunResult;
-}
-
-/** The current time, injected so no test result depends on when it happened to run. */
-export interface ClockPort {
-  readonly nowMs: () => number;
 }
 
 /**

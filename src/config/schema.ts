@@ -33,7 +33,7 @@ export type CategoryMap = z.infer<typeof CategoryMapSchema>;
 
 /** A duration literal: a positive integer count followed by a unit. Used by `newerThan`/`olderThan`. */
 export const DURATION_RE = /^(?:0|[1-9][0-9]*)(?:ms|s|m|h|d|w)$/;
-export const DurationSchema = z.string().regex(DURATION_RE);
+const DurationSchema = z.string().regex(DURATION_RE);
 
 /**
  * A conditional guard on an entries value or a whole directory rule. Every field present within one `when` object must hold (AND logic). An empty object is vacuously true — `claude-use check` warns about it, it is never an error.
@@ -62,7 +62,7 @@ export const EntriesSchema = z.record(z.string().regex(ENTRY_KEY_RE), EntryValue
 export type Entries = z.infer<typeof EntriesSchema>;
 
 /** Launch flags, resolved through the same cascade as categories and entries. */
-export const LaunchSchema = z.strictObject({
+const LaunchSchema = z.strictObject({
   skipPermissions: z.boolean().optional(),
   remoteControl: z.boolean().optional(),
 });

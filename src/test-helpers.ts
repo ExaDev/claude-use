@@ -118,7 +118,7 @@ type FakeNode =
   | { kind: "symlink"; mtimeMs: number; target: string };
 
 /** One mutating operation the fake filesystem performed, recorded so a test can assert that a resync wrote nothing at all. */
-export interface FakeFsWrite {
+interface FakeFsWrite {
   readonly op: "mkdirp" | "symlink" | "rename" | "remove" | "copy" | "write";
   readonly path: string;
 }

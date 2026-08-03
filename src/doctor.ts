@@ -21,9 +21,9 @@ import { realFsPort, realOwnExecutablePath, realResolveClaudeBinary, realRunPort
 import { lineariseProfile, type ProfileLoader, type ProfileSource } from "./resolve";
 import type { DiscoveredClaudeBinary } from "./versionDiscovery";
 
-export type DoctorSeverity = "pass" | "warn" | "fail";
+type DoctorSeverity = "pass" | "warn" | "fail";
 
-export type DoctorSection =
+type DoctorSection =
   | "ambient-credential"
   | "binary-discovery"
   | "claude-shim"
@@ -36,7 +36,7 @@ export type DoctorSection =
   | "active-identity";
 
 /** One line of `claude-use doctor`'s report. `subject` names the identity/profile/rule the finding is about, when the section has more than one of those. */
-export interface DoctorFinding {
+interface DoctorFinding {
   readonly section: DoctorSection;
   readonly subject?: string;
   readonly severity: DoctorSeverity;
@@ -72,7 +72,7 @@ interface DoctorFileInput {
 }
 
 /** The outcome of resolving the real Claude Code binary, pre-resolved by the wiring layer since `discoverClaudeBinary` is not itself a parse-shaped pure operation and already has its own dedicated test coverage. */
-export type DoctorBinaryDiscovery =
+type DoctorBinaryDiscovery =
   | { readonly ok: true; readonly binary: DiscoveredClaudeBinary }
   | { readonly ok: false; readonly message: string };
 

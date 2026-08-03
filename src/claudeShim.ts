@@ -102,7 +102,7 @@ export interface LinkFs {
   readonly copyFile: (src: string, dest: string) => void;
   readonly chmod: (target: string, mode: number) => void;
 }
-export const nodeLinkFs: LinkFs = { link: fs.linkSync, copyFile: fs.copyFileSync, chmod: fs.chmodSync };
+const nodeLinkFs: LinkFs = { link: fs.linkSync, copyFile: fs.copyFileSync, chmod: fs.chmodSync };
 
 /** Inputs to `enableClaudeShim`. */
 export interface EnableShimParams {
@@ -117,7 +117,7 @@ export interface EnableShimParams {
   readonly force: boolean;
 }
 
-export type EnableShimAction = "enabled" | "reenabled";
+type EnableShimAction = "enabled" | "reenabled";
 export interface EnableShimResult {
   readonly action: EnableShimAction;
   readonly targetPath: string;
@@ -171,7 +171,7 @@ export function enableClaudeShim(params: EnableShimParams, linkFs: LinkFs = node
   return { action: existing === undefined ? "enabled" : "reenabled", targetPath, method };
 }
 
-export type DisableShimAction = "disabled" | "not-enabled";
+type DisableShimAction = "disabled" | "not-enabled";
 export interface DisableShimResult {
   readonly action: DisableShimAction;
   readonly targetPath: string;

@@ -8,7 +8,7 @@ import {
 } from "./schema";
 
 /** Which map a classification pattern came from. A `local` pattern is an answer the user gave to an "unclassified entry" prompt; a `default` pattern is shipped with the tool. */
-export type ClassificationSource = "default" | "local";
+type ClassificationSource = "default" | "local";
 
 /** One compiled classification pattern: which category it assigns, where it came from, and how specific it is. */
 export interface ClassificationPattern {
@@ -85,7 +85,7 @@ export function compileClassificationPatterns(
  * 3. Longest pattern wins (a longer glob is the more specific one).
  * 4. Later ordinal wins, so the comparison is total and never iteration-order-dependent.
  */
-export function compareClassificationPatterns(a: ClassificationPattern, b: ClassificationPattern): number {
+function compareClassificationPatterns(a: ClassificationPattern, b: ClassificationPattern): number {
   if (a.isExact !== b.isExact) {
     return a.isExact ? 1 : -1;
   }

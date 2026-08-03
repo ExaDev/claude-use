@@ -4,11 +4,11 @@ import path from "node:path";
 import type { FarmFs } from "./ports";
 
 /** How long a lock file may sit untouched before a later launch treats it as abandoned and takes it. Deliberately far longer than any plausible resync of a large `~/.claude`, since stealing a live lock is worse than waiting behind one. */
-export const DEFAULT_STALE_AFTER_MS = 120_000;
+const DEFAULT_STALE_AFTER_MS = 120_000;
 /** How long to wait between attempts to take a held lock. */
-export const DEFAULT_RETRY_DELAY_MS = 50;
+const DEFAULT_RETRY_DELAY_MS = 50;
 /** How many attempts before giving up. With the default delay this is a ten-second ceiling — long enough for a sibling session's resync, short enough that a wedged lock does not hang a terminal indefinitely. */
-export const DEFAULT_MAX_ATTEMPTS = 200;
+const DEFAULT_MAX_ATTEMPTS = 200;
 
 /** What one lock file holds. The token is what makes releasing safe: a lock stolen from a crashed process must not then be released out from under whoever took it. */
 interface LockRecord {

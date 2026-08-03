@@ -35,7 +35,7 @@ import { resolveDecisions, walkDirectoryAncestors, type Decision } from "./resol
 /* -------------------------------------------------------------------------------------------------- */
 
 /** One selectable option, shared by `select` and `multiselect`. */
-export interface PromptOption<Value extends string> {
+interface PromptOption<Value extends string> {
   readonly value: Value;
   readonly label: string;
   readonly hint?: string;
@@ -88,7 +88,7 @@ function isKnownOptionValue<Value extends string>(value: string, options: readon
   return options.some((option) => option.value === value);
 }
 
-export const realPromptsPort: PromptsPort = {
+const realPromptsPort: PromptsPort = {
   select: <Value extends string>(params: SelectParams<Value>) =>
     clack
       .select({
@@ -123,9 +123,6 @@ export const realPromptsPort: PromptsPort = {
 /* -------------------------------------------------------------------------------------------------- */
 /* chooseWriteTarget: the 3-tier write-target precedence, pure and directly testable.                 */
 /* -------------------------------------------------------------------------------------------------- */
-
-/** Which of the three tiers a toggle would be written to. */
-export type WriteTargetTier = "portable-local" | "directory-rule" | "config-profile";
 
 /** Where one toggle should be written, per the README's "claude-use configure: which file it writes to" precedence. */
 export type WriteTarget =

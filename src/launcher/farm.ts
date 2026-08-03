@@ -163,7 +163,7 @@ function topLevelScopeRoots(roots: readonly string[]): string[] {
  *
  * Without a usable manifest there is no way to tell the two apart, so every top-level real directory becomes a scope root and `planReconciliation` runs in its conservative mode. That over-adopts, which the swap then compensates for by retaining the superseded farm rather than discarding it.
  */
-export function reconciliationScope(fs: FarmFs, farmRoot: string, manifest: FarmManifest | undefined): string[] {
+function reconciliationScope(fs: FarmFs, farmRoot: string, manifest: FarmManifest | undefined): string[] {
   if (manifest !== undefined) {
     return topLevelScopeRoots(manifest.materialised);
   }
@@ -173,7 +173,7 @@ export function reconciliationScope(fs: FarmFs, farmRoot: string, manifest: Farm
 }
 
 /** Lists the old farm's reconcilable subtrees, flat and hashed, ready for `planReconciliation`. */
-export function collectFarmListing(fs: FarmFs, farmRoot: string, scopeRoots: readonly string[]): ListingEntry[] {
+function collectFarmListing(fs: FarmFs, farmRoot: string, scopeRoots: readonly string[]): ListingEntry[] {
   const out: ListingEntry[] = [];
   for (const root of scopeRoots) {
     listSubtree(fs, farmRoot, root, out);
@@ -186,7 +186,7 @@ export function collectFarmListing(fs: FarmFs, farmRoot: string, scopeRoots: rea
  *
  * Deliberately not a full walk of `~/.claude`: `planReconciliation` only ever looks a farm path up by name, and hashing every session transcript in a real history directory to answer questions about a handful of files would cost more than the whole resync.
  */
-export function collectCanonicalCounterparts(fs: FarmFs, claudeHome: string, farmListing: readonly ListingEntry[]): ListingEntry[] {
+function collectCanonicalCounterparts(fs: FarmFs, claudeHome: string, farmListing: readonly ListingEntry[]): ListingEntry[] {
   const out: ListingEntry[] = [];
   for (const entry of farmListing) {
     const absolute = path.join(claudeHome, entry.rel);
@@ -205,7 +205,7 @@ export function collectCanonicalCounterparts(fs: FarmFs, claudeHome: string, far
 }
 
 /** Inputs to `carryOver`. */
-export interface CarryOverParams {
+interface CarryOverParams {
   readonly fs: FarmFs;
   /** The superseded farm, already renamed aside. */
   readonly previousRoot: string;
@@ -214,7 +214,7 @@ export interface CarryOverParams {
 }
 
 /** What `carryOver` moved and what it could not. */
-export interface CarryOverResult {
+interface CarryOverResult {
   /** Top-level names moved from the superseded farm into the new one. */
   readonly carried: readonly string[];
   /** Top-level names left behind because the new farm has its own entry of that name. */
@@ -230,7 +230,7 @@ export interface CarryOverResult {
  *
  * A name that exists in both is reported rather than resolved. Overwriting the new farm's own entry would discard whatever the resync just decided; overwriting the old one would discard data. The caller keeps the superseded farm on disk in that case.
  */
-export function carryOver(params: CarryOverParams): CarryOverResult {
+function carryOver(params: CarryOverParams): CarryOverResult {
   const manifest = readFarmManifest(params.fs, params.previousRoot);
   const accounted = new Set<string>([FARM_MANIFEST_FILENAME]);
   for (const rel of manifest?.materialised ?? []) {
@@ -263,7 +263,7 @@ export function carryOver(params: CarryOverParams): CarryOverResult {
 }
 
 /** Inputs to `buildScratchTree`. */
-export interface BuildScratchTreeParams {
+interface BuildScratchTreeParams {
   readonly fs: FarmFs;
   readonly scratchRoot: string;
   readonly plan: FarmPlan;
@@ -275,7 +275,7 @@ export interface BuildScratchTreeParams {
  *
  * The plan already emits parents before children, so a materialised directory always exists before anything is written inside it. The manifest is written last, into the scratch tree itself, which is what lets the next resync tell the directories this build created apart from the ones Claude Code went on to create inside them.
  */
-export function buildScratchTree(params: BuildScratchTreeParams): void {
+function buildScratchTree(params: BuildScratchTreeParams): void {
   params.fs.mkdirp(params.scratchRoot);
   for (const entry of params.plan.entries) {
     const absolute = path.join(params.scratchRoot, entry.rel);
@@ -295,7 +295,7 @@ export function buildScratchTree(params: BuildScratchTreeParams): void {
 }
 
 /** Inputs to `swapIn`. */
-export interface SwapInParams {
+interface SwapInParams {
   readonly fs: FarmFs;
   readonly farmRoot: string;
   readonly scratchRoot: string;
@@ -304,7 +304,7 @@ export interface SwapInParams {
 }
 
 /** What the swap did. */
-export interface SwapInResult extends CarryOverResult {
+interface SwapInResult extends CarryOverResult {
   /** Set when the superseded farm still held data after carry-over and was therefore left on disk rather than discarded. */
   readonly retainedPrevious?: string;
 }
@@ -318,7 +318,7 @@ export interface SwapInResult extends CarryOverResult {
  *
  * The window in which no directory exists at `farmRoot` is one rename wide. Concurrent *resyncs* cannot observe it at all, because the per-identity lock serialises them; a concurrent `claude` process already running under this identity can, which is inherent to replacing a directory a live process is reading and is why the window is kept to a single syscall.
  */
-export function swapIn(params: SwapInParams): SwapInResult {
+function swapIn(params: SwapInParams): SwapInResult {
   if (params.fs.lstat(params.farmRoot) === undefined) {
     params.fs.mkdirp(path.dirname(params.farmRoot));
     params.fs.rename(params.scratchRoot, params.farmRoot);
@@ -337,7 +337,7 @@ export function swapIn(params: SwapInParams): SwapInResult {
 }
 
 /** Inputs to `recoverInterruptedSwap`. */
-export interface RecoverInterruptedSwapParams {
+interface RecoverInterruptedSwapParams {
   readonly fs: FarmFs;
   readonly identitiesDir: string;
   readonly identity: string;
@@ -365,7 +365,7 @@ export interface RecoveryResult {
  *
  * Every branch preserves data. Nothing here removes a directory that could still be the only copy of something.
  */
-export function recoverInterruptedSwap(params: RecoverInterruptedSwapParams): RecoveryResult {
+function recoverInterruptedSwap(params: RecoverInterruptedSwapParams): RecoveryResult {
   const scratchPrefix = `.${params.identity}.scratch.`;
   const previousPrefix = `.${params.identity}.previous.`;
   const names = [...params.fs.readdir(params.identitiesDir)].sort();
@@ -450,7 +450,7 @@ export function recoverFarm(params: RecoverFarmParams): RecoveryResult {
 }
 
 /** Inputs to `executeReconciliation`. */
-export interface ExecuteReconciliationParams {
+interface ExecuteReconciliationParams {
   readonly fs: FarmFs;
   readonly farmRoot: string;
   readonly claudeHome: string;
@@ -460,7 +460,7 @@ export interface ExecuteReconciliationParams {
 }
 
 /** What adoption actually wrote. */
-export interface ReconciliationOutcome {
+interface ReconciliationOutcome {
   readonly adopted: readonly string[];
   readonly conflicts: readonly string[];
   readonly blocked: readonly string[];
@@ -474,7 +474,7 @@ export interface ReconciliationOutcome {
  *
  * A conflicting path is never overwritten in either direction: the canonical copy stays authoritative and the farm's differing copy is written alongside it under a suffixed name, so a user can look at both. And the secret floor applies here too — a path classified `secret` is never adopted, because a floor that only governs data leaving `~/.claude` while ignoring data entering it would not be a floor.
  */
-export function executeReconciliation(params: ExecuteReconciliationParams): ReconciliationOutcome {
+function executeReconciliation(params: ExecuteReconciliationParams): ReconciliationOutcome {
   const heads = new Set<string>();
   for (const action of params.actions) {
     if (action.kind === "skip") {
