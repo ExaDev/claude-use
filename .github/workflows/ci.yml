@@ -6,10 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Cancel superseded runs on the same ref so a fresh push doesn't queue behind a stale one.
+# Cancel superseded runs on the same ref -- but only for pull_request events. A push-to-main run can tag and push a real release partway through (semantic-release), then spend several more minutes on builds, npm publish, GitHub Release creation, and tap updates; cancelling that mid-flight because a second push landed (e.g. a Dependabot auto-merge racing a manual push) leaves a real git tag with none of its actual artifacts ever published -- confirmed in production 2026-08-03, v0.3.4 tagged with every downstream job killed seconds after Semantic Release succeeded. A pull_request's stale checks have no such cost, so those still get superseded.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
