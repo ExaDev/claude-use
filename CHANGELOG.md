@@ -1,3 +1,9 @@
+## [0.3.5](https://github.com/ExaDev/claude-use/compare/v0.3.4...v0.3.5) (2026-08-03)
+
+### Bug Fixes
+
+* don't cancel an in-flight release when a push supersedes it ([5ee1f30](https://github.com/ExaDev/claude-use/commit/5ee1f30acd56c4830ca14110c5e414bdb7c42898))
+
 ## [0.3.4](https://github.com/ExaDev/claude-use/compare/v0.3.3...v0.3.4) (2026-08-03)
 
 ### Bug Fixes
