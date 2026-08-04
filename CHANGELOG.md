@@ -1,3 +1,9 @@
+## [0.5.0](https://github.com/ExaDev/claude-use/compare/v0.4.0...v0.5.0) (2026-08-04)
+
+### Features
+
+* add a claude-use @<name> shortcut for identity use <name> ([28868bd](https://github.com/ExaDev/claude-use/commit/28868bd88821d381a8958d5db77368887ecfad2a))
+
 ## [0.4.0](https://github.com/ExaDev/claude-use/compare/v0.3.6...v0.4.0) (2026-08-04)
 
 ### Features
