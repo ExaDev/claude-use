@@ -1,3 +1,9 @@
+## [0.4.0](https://github.com/ExaDev/claude-use/compare/v0.3.6...v0.4.0) (2026-08-04)
+
+### Features
+
+* add an 'all' shorthand for every overridable category ([4ad3a96](https://github.com/ExaDev/claude-use/commit/4ad3a96a23a0bfb5e549448d4bfb1f1607aec191))
+
 ## [0.3.6](https://github.com/ExaDev/claude-use/compare/v0.3.3...v0.3.6) (2026-08-03)
 
 v0.3.4 and v0.3.5 were tagged but never fully published — a CI concurrency race cancelled their release pipelines mid-flight (fixed below), and both tags/releases have been removed. v0.3.6 is the first version to actually ship the fixes below.
