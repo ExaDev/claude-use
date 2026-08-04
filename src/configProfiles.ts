@@ -5,6 +5,7 @@ import type { Command } from "commander";
 import { applyPatch, readJson, writeJsonAtomic } from "./config/store";
 import {
   ConfigProfileSchema,
+  expandAllCategoryKey,
   GlobalConfigSchema,
   isOverridableCategory,
   type CategoryMap,
@@ -138,9 +139,10 @@ export function setProfileCategories(
   patch: Readonly<Record<string, boolean>>,
 ): ConfigProfile {
   requireProfileExists(paths, name);
-  validateCategoryNames(patch);
+  const expandedPatch = expandAllCategoryKey(patch);
+  validateCategoryNames(expandedPatch);
   const existing = readProfile(paths, name) ?? {};
-  const mergedCategories: CategoryMap = { ...existing.categories, ...patch };
+  const mergedCategories: CategoryMap = { ...existing.categories, ...expandedPatch };
   return applyPatch(profileJsonPath(paths, name), ConfigProfileSchema, { categories: mergedCategories });
 }
 

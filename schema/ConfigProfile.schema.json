@@ -19,6 +19,9 @@
     "categories": {
       "type": "object",
       "properties": {
+        "all": {
+          "type": "boolean"
+        },
         "runtime": {
           "type": "boolean"
         },

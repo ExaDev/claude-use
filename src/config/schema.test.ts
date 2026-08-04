@@ -42,12 +42,46 @@ describe("CategoryMapSchema", () => {
   });
 
   it("omits `secret` from its shape entirely, so the published JSON Schema cannot suggest it", () => {
-    expect(Object.keys(CategoryMapSchema.shape).sort()).toEqual([...OVERRIDABLE_CATEGORIES].sort());
+    expect(Object.keys(CategoryMapSchema.in.shape).sort()).toEqual([...OVERRIDABLE_CATEGORIES, "all"].sort());
     expect(CATEGORY_NAMES).toContain("secret");
   });
 
   it("rejects an unknown category name", () => {
     expect(CategoryMapSchema.safeParse({ nonsense: true }).success).toBe(false);
+  });
+
+  it("expands `all` into every overridable category set to that value", () => {
+    expect(CategoryMapSchema.parse({ all: true })).toEqual({
+      runtime: true,
+      history: true,
+      knowledge: true,
+      settings: true,
+    });
+    expect(CategoryMapSchema.parse({ all: false })).toEqual({
+      runtime: false,
+      history: false,
+      knowledge: false,
+      settings: false,
+    });
+  });
+
+  it("lets an explicit named category win over `all`, regardless of key order", () => {
+    expect(CategoryMapSchema.parse({ all: true, runtime: false })).toEqual({
+      runtime: false,
+      history: true,
+      knowledge: true,
+      settings: true,
+    });
+    expect(CategoryMapSchema.parse({ runtime: false, all: true })).toEqual({
+      runtime: false,
+      history: true,
+      knowledge: true,
+      settings: true,
+    });
+  });
+
+  it("drops `all` from the result when it is absent, leaving only the named categories given", () => {
+    expect(CategoryMapSchema.parse({ history: true })).toEqual({ history: true });
   });
 });
 

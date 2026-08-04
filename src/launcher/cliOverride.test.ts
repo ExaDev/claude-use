@@ -32,6 +32,21 @@ describe("buildCliOverride", () => {
     expect(() => buildCliOverride({ env: {}, ...noFlags, categoryFlags: ["nonsense=true"] })).toThrow(InvalidCliCategoryError);
   });
 
+  it("expands all=true into every overridable category via --category", () => {
+    const result = buildCliOverride({ env: {}, ...noFlags, categoryFlags: ["all=true"] });
+    expect(result?.categories).toEqual({ runtime: true, history: true, knowledge: true, settings: true });
+  });
+
+  it("lets an explicit --category value narrow what all=true opened", () => {
+    const result = buildCliOverride({ env: {}, ...noFlags, categoryFlags: ["all=true,runtime=false"] });
+    expect(result?.categories).toEqual({ runtime: false, history: true, knowledge: true, settings: true });
+  });
+
+  it("expands all=true from CLAUDE_USE_CATEGORY_OVERRIDE the same way as --category", () => {
+    const result = buildCliOverride({ env: { CLAUDE_USE_CATEGORY_OVERRIDE: "all=true" }, ...noFlags });
+    expect(result?.categories).toEqual({ runtime: true, history: true, knowledge: true, settings: true });
+  });
+
   it("turns --share into true-valued entries and --hide into false-valued entries", () => {
     const result = buildCliOverride({
       env: {},

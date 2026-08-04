@@ -21,15 +21,36 @@ export function isCategoryName(name: string): name is CategoryName {
 }
 
 /**
- * The category toggle map. A closed, strict object over the four overridable categories only: `secret` is omitted from the shape entirely, so `{ "categories": { "secret": true } }` is rejected at parse time rather than relying solely on the resolver's runtime floor check. The closed shape is also what lets the published JSON Schema offer real key-name autocomplete, which an open record type cannot.
+ * The category toggle map's resolved shape — always exactly the four overridable categories, never the `all` pseudo-key `CategoryMapSchema` also accepts on input. Derived directly from `OverridableCategory` rather than `z.infer`red from a schema, since `CategoryMapSchema` itself carries a `.transform()` (whose inferred type follows the transform's *output*, so it can't be used to define its own output type without circularity) and a schema built solely to be `typeof`'d, never actually parsed with, would be dead weight at runtime for no benefit over a plain mapped type.
  */
-export const CategoryMapSchema = z.strictObject({
-  runtime: z.boolean().optional(),
-  history: z.boolean().optional(),
-  knowledge: z.boolean().optional(),
-  settings: z.boolean().optional(),
-});
-export type CategoryMap = z.infer<typeof CategoryMapSchema>;
+export type CategoryMap = Partial<Record<OverridableCategory, boolean>>;
+
+/**
+ * Expands the `all` pseudo-category key into every overridable category set to that same value, dropping `all` itself from the result. An explicit named category always wins over the `all` expansion regardless of where it appears relative to `all` in the input — `{ all: true, runtime: false }` means "share everything except runtime", not "runtime is false, then immediately overwritten back to true by all's own expansion". Built from `OVERRIDABLE_CATEGORIES` rather than the four names spelled out again, so a future addition to that list is covered by `all` with no change needed here.
+ *
+ * This is the one shared implementation `CategoryMapSchema`'s own transform, `launcher/cliOverride.ts`'s `--category`/`CLAUDE_USE_CATEGORY_OVERRIDE` handling, and `configProfiles.ts`'s `claude-use profile set --category` all call — so `all` means the same thing regardless of which of those three input paths it arrived through.
+ */
+export function expandAllCategoryKey(pairs: Readonly<Record<string, boolean>>): Record<string, boolean> {
+  const { all, ...rest } = pairs;
+  if (all === undefined) {
+    return { ...rest };
+  }
+  const expanded = Object.fromEntries(OVERRIDABLE_CATEGORIES.map((category) => [category, all]));
+  return { ...expanded, ...rest };
+}
+
+/**
+ * The category toggle map as written by hand: the four overridable categories, plus `all` as shorthand for "every overridable category at once" (expanded by `expandAllCategoryKey` above). `secret` is omitted from the shape entirely, so `{ "categories": { "secret": true } }` is rejected at parse time rather than relying solely on the resolver's runtime floor check. The closed shape is also what lets the published JSON Schema offer real key-name autocomplete, which an open record type cannot.
+ */
+export const CategoryMapSchema = z
+  .strictObject({
+    all: z.boolean().optional(),
+    runtime: z.boolean().optional(),
+    history: z.boolean().optional(),
+    knowledge: z.boolean().optional(),
+    settings: z.boolean().optional(),
+  })
+  .transform((input): CategoryMap => expandAllCategoryKey(input));
 
 /** A duration literal: a positive integer count followed by a unit. Used by `newerThan`/`olderThan`. */
 export const DURATION_RE = /^(?:0|[1-9][0-9]*)(?:ms|s|m|h|d|w)$/;

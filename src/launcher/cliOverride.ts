@@ -1,5 +1,5 @@
 import { collectBoolPairs, parseBoolPairList, splitTopLevelCommas } from "../cli/parsers";
-import { ENTRY_KEY_RE, isOverridableCategory, type CategoryMap, type Entries } from "../config/schema";
+import { ENTRY_KEY_RE, expandAllCategoryKey, isOverridableCategory, type CategoryMap, type Entries } from "../config/schema";
 
 /** Raised when a `--category`/`CLAUDE_USE_CATEGORY_OVERRIDE` key names something other than one of the four overridable categories. */
 export class InvalidCliCategoryError extends Error {
@@ -18,8 +18,9 @@ export class InvalidCliEntryKeyError extends Error {
 }
 
 function toCategoryMap(pairs: Record<string, boolean>): CategoryMap {
+  const expanded = expandAllCategoryKey(pairs);
   const result: Record<string, boolean> = {};
-  for (const [key, value] of Object.entries(pairs)) {
+  for (const [key, value] of Object.entries(expanded)) {
     if (!isOverridableCategory(key)) {
       throw new InvalidCliCategoryError(key);
     }
