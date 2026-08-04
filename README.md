@@ -74,6 +74,7 @@ Select an identity with:
 - `claude @<name>` — equivalent, once `claude-use shim enable` has been run (see [Install](#install))
 - `CLAUDE_ACCOUNT=<name> claude` — equivalent, via environment variable (this is `claude-use`'s own variable, read by its launcher; Anthropic's own multi-account convention is a plain `CLAUDE_CONFIG_DIR=<path> claude`, which `claude-use` builds on top of rather than replaces) — also needs the shim enabled first
 - `claude-use identity use <name>` — persistently, until changed again
+- `claude-use @<name>` — the same, terser: shorthand for `claude-use identity use <name>`, matching the `@name` convention the other forms above already use. Deliberately requires the `@` prefix and requires `@<name>` to be the *only* argument — identity names are user-chosen and unconstrained against `claude-use`'s own subcommand vocabulary (`identity`, `profile`, `rules`, `check`, `configure`, `doctor`, `shim`, `run`), so a bare `claude-use <name>` (no `@`) is deliberately left alone as an "unknown command" error rather than risking a future identity name colliding with a future subcommand name
 
 A directory rule (see below) can also pin a specific identity to a path, overriding whichever one is otherwise active — useful as a safety net so a particular client's directory always uses the right login regardless of habit.
 
@@ -277,7 +278,7 @@ claude-use identity set <name> --allow-ambient-credential   # persistently, for 
 
 | What you're setting | Global (persistent) | Temporary (this run only) | Directory-scoped (persistent) |
 |---|---|---|---|
-| **Identity** | `claude-use identity use <name>` (writes `~/.claude-use/active-identity`) | `claude-use run @<name>` / `claude @<name>` (needs `claude-use shim enable`) / `CLAUDE_ACCOUNT=<name> claude` (same) | `claude-use rules add <path> --identity <name>`; or `.claude-use.json`'s `"identity"` |
+| **Identity** | `claude-use identity use <name>` / `claude-use @<name>` (writes `~/.claude-use/active-identity`) | `claude-use run @<name>` / `claude @<name>` (needs `claude-use shim enable`) / `CLAUDE_ACCOUNT=<name> claude` (same) | `claude-use rules add <path> --identity <name>`; or `.claude-use.json`'s `"identity"` |
 | **Configuration profile** | `claude-use profile set-default <name>`; or `claude-use identity set-default-profile <identity> <profile>` | `claude --config-profile <name>` / `CLAUDE_USE_CONFIG_PROFILE=<name> claude` | `claude-use rules add <path> --profile <name>`; or `.claude-use.json`'s `"configProfile"` |
 | **A category** | `claude-use profile set <name> --category history=true`; or `claude-use configure <identity>` | `claude --category history=true[,knowledge=false,...]` / `CLAUDE_USE_CATEGORY_OVERRIDE="history=true,knowledge=false"` | `claude-use configure <identity>` run from inside the ruled directory; or `.claude-use.json`'s `"categories"` |
 | **An individual entry** | `claude-use profile set <name> --entry "path"=true`; or `claude-use configure <identity> <path>` | `claude --share <path>[,<path>,...]` / `claude --hide <path>[,<path>,...]` / `CLAUDE_USE_ENTRY_OVERRIDE="path=true,otherpath=false"` | `claude-use configure <identity> <path>` run from inside the ruled directory; or `.claude-use.json`'s `"entries"` |
@@ -291,6 +292,7 @@ The scriptable `claude-use profile set ...` commands exist alongside the interac
 ```
 claude-use identity add <name>
 claude-use identity use <name>
+claude-use @<name>                          # shorthand for `identity use <name>`
 claude-use identity list
 claude-use identity set-default-profile <identity> <profile>
 claude-use identity set <name> [--allow-ambient-credential | --no-allow-ambient-credential]

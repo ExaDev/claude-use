@@ -61,6 +61,27 @@ export function useIdentity(paths: LayoutPaths, name: string): void {
   writeTextAtomic(paths.activeIdentityFile, `${name}\n`);
 }
 
+/**
+ * Handles the `claude-use @<name>` shortcut for `claude-use identity use <name>` — terser, and matches the `@name` convention `run @name`/`claude @name` already use for selecting an identity, rather than introducing a new one.
+ *
+ * Deliberately requires the `@` prefix and requires `@<name>` to be the *only* argument, rather than also accepting a bare `claude-use <name>`: identity names are user-chosen and unconstrained against the registered subcommand vocabulary (`identity`, `profile`, `rules`, `check`, `configure`, `doctor`, `shim`, `run`), so a bare positional name could collide with a real subcommand — today by an unlikely coincidence, but the tool's own vocabulary only grows over time. `@` makes the token unambiguous on sight and guarantees no future subcommand name can ever collide with it.
+ *
+ * Returns `false` when `argv` doesn't match this exact one-argument `@name` shape at all, so the caller falls through to normal Commander subcommand dispatch (including its own "unknown command" error for anything else). Returns `true` once handled, whether that meant switching identity or letting `useIdentity`'s own `IdentityNotFoundError` propagate for an unknown name — both are this shortcut's own outcome, not a fallthrough case.
+ */
+export function tryRunAtIdentityShortcut(paths: LayoutPaths, argv: readonly string[]): boolean {
+  if (argv.length !== 1) {
+    return false;
+  }
+  const [token] = argv;
+  if (token === undefined || !token.startsWith("@") || token.length === 1) {
+    return false;
+  }
+  const name = token.slice(1);
+  useIdentity(paths, name);
+  console.log(`Active identity is now "${name}".`);
+  return true;
+}
+
 /** Reads the persisted active-identity file, or undefined when none is set. */
 export function readActiveIdentity(paths: LayoutPaths): string | undefined {
   if (!fs.existsSync(paths.activeIdentityFile)) {

@@ -13,6 +13,7 @@ import {
   readIdentity,
   setAllowAmbientCredential,
   setDefaultConfigProfile,
+  tryRunAtIdentityShortcut,
   useIdentity,
 } from "./identityManager";
 
@@ -74,6 +75,42 @@ describe("identityManager", () => {
       useIdentity(paths, "personal");
       useIdentity(paths, "work");
       expect(readActiveIdentity(paths)).toBe("work");
+    });
+  });
+
+  describe("tryRunAtIdentityShortcut", () => {
+    it("switches the active identity for a bare @<name> argument", () => {
+      addIdentity(paths, "exadev");
+      expect(tryRunAtIdentityShortcut(paths, ["@exadev"])).toBe(true);
+      expect(readActiveIdentity(paths)).toBe("exadev");
+    });
+
+    it("propagates IdentityNotFoundError for an unknown @<name>, same as identity use", () => {
+      expect(() => tryRunAtIdentityShortcut(paths, ["@ghost"])).toThrow(IdentityNotFoundError);
+    });
+
+    it("returns false and touches nothing for a bare name with no @ prefix", () => {
+      addIdentity(paths, "exadev");
+      expect(tryRunAtIdentityShortcut(paths, ["exadev"])).toBe(false);
+      expect(readActiveIdentity(paths)).toBeUndefined();
+    });
+
+    it("returns false for a lone @ with no name", () => {
+      expect(tryRunAtIdentityShortcut(paths, ["@"])).toBe(false);
+    });
+
+    it("returns false when there is more than one argument, even if the first is @<name>", () => {
+      addIdentity(paths, "exadev");
+      expect(tryRunAtIdentityShortcut(paths, ["@exadev", "extra"])).toBe(false);
+      expect(readActiveIdentity(paths)).toBeUndefined();
+    });
+
+    it("returns false for no arguments at all", () => {
+      expect(tryRunAtIdentityShortcut(paths, [])).toBe(false);
+    });
+
+    it("returns false for a real subcommand name, leaving it to Commander's own dispatch", () => {
+      expect(tryRunAtIdentityShortcut(paths, ["identity"])).toBe(false);
     });
   });
 

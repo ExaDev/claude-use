@@ -12,7 +12,7 @@ import { registerCheckCommand } from "./check";
 import { registerConfigureCommand } from "./configure";
 import { isInvokedAsClaude, registerShimCommand, resolveOwnInstallDirs } from "./claudeShim";
 import { registerDoctorCommand } from "./doctor";
-import { registerIdentityCommand } from "./identityManager";
+import { registerIdentityCommand, tryRunAtIdentityShortcut } from "./identityManager";
 import { registerProfileCommand } from "./configProfiles";
 import { registerRulesCommand } from "./directoryRules";
 import { resolveClaudeHome, resolveLayoutPaths, type LayoutPaths } from "./paths";
@@ -144,7 +144,7 @@ function main(): void {
   const invokedName = path.basename(process.argv[1] ?? "claude-use");
   if (isInvokedAsClaude(invokedName)) {
     runClaude();
-  } else {
+  } else if (!tryRunAtIdentityShortcut(resolveLayoutPaths(), process.argv.slice(2))) {
     buildClaudeUseProgram().parse(process.argv);
   }
 }
