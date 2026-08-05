@@ -214,6 +214,12 @@ Because the farm's content now depends on **(identity, resolved configuration pr
 
 Running two or more sessions concurrently under one identity — two terminals, each in a different client directory, is exactly the pattern directory rules are meant to support — means two resyncs can race to mutate the same shared farm toward two different resolved states. The launcher serialises this with a per-identity lock file (held for the duration of the resync, released before spawning `claude`) and builds each resync's changes as a scratch tree swapped into place with an atomic rename rather than mutating the live farm path-by-path in place, so a sibling session never observes a half-updated farm partway through someone else's resync.
 
+### Resolving a retained superseded farm
+
+Swapping in a resynced farm carries the identity's own real local data (credentials, `identity.json`, daemon/runtime state — anything that isn't a symlink or a directory the previous resync itself materialised) across from the superseded farm into the new one. When a top-level name exists in both, the swap never overwrites in either direction — it leaves the superseded farm on disk and reports it (`FARM_PREVIOUS_RETAINED`, or `FARM_SWAP_RECOVERED` when a crash-recovery pass on a later launch rediscovers it) rather than guessing which copy is more important. This can only happen when the underlying data genuinely differs in a way the tool has no way to judge safely on its own — the category system only tracks whether data is *shared across identities*, not whether it's *precious vs. disposable*.
+
+`claude-use identity resolve <name>` walks every retained `.{name}.previous.*` directory for that identity and resolves each collision interactively: keep the current farm's copy, keep the superseded farm's copy, or skip it for now (leaving it exactly as-is for a later run to ask about again). A superseded directory is only removed once every one of its own conflicts has been decided; skipping even one leaves the whole directory retained.
+
 ## Portable config: `.claude-use.json`
 
 `~/.claude-use/directory-rules.json` is local to one machine and keyed by absolute path — it doesn't survive being shared with a teammate, or even the same person cloning a repo to a different location. A `.claude-use.json` file committed at a project's root closes that gap. It's discovered exactly the way nested `CLAUDE.md` files are: every `.claude-use.json` found while walking upward from `$PWD` is collected, sorted shallowest-first, and folded into the cascade like a directory rule — except its scope is implicit (wherever the file lives, and everything below it) rather than an explicit `path` field, so it works identically no matter where the repo is checked out.
@@ -296,6 +302,7 @@ claude-use @<name>                          # shorthand for `identity use <name>
 claude-use identity list
 claude-use identity set-default-profile <identity> <profile>
 claude-use identity set <name> [--allow-ambient-credential | --no-allow-ambient-credential]
+claude-use identity resolve <name>          # interactively resolve a retained superseded farm's conflicts
 
 claude-use profile create <name> [--extends <name>,<name>,...]
 claude-use profile list

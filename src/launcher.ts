@@ -120,7 +120,7 @@ export function runLauncher(params: RunLauncherParams): void {
       }
       throw error;
     }
-    for (const diagnostic of recoveryDiagnostics(recovery)) {
+    for (const diagnostic of recoveryDiagnostics(recovery, farmIdentity)) {
       log.warn(`claude-use: ${diagnostic.code}: ${diagnostic.message}`);
     }
   }

@@ -4,7 +4,10 @@ import type { Command } from "commander";
 
 import { applyPatch, readJson, writeJsonAtomic, writeTextAtomic } from "./config/store";
 import { IdentitySchema, type Identity } from "./config/schema";
+import { realPromptsPort } from "./configure";
+import { resolveFarmConflicts, type FarmConflictChoice } from "./launcher/farmResolve";
 import type { LayoutPaths } from "./paths";
+import { realFarmFs } from "./realPorts";
 
 /** Raised by any operation that requires an identity to already exist, when it does not. */
 export class IdentityNotFoundError extends Error {
@@ -162,6 +165,42 @@ export function registerIdentityCommand(program: Command, paths: LayoutPaths): v
     .action((name: string) => {
       useIdentity(paths, name);
       console.log(`Active identity is now "${name}".`);
+    });
+
+  identity
+    .command("resolve <name>")
+    .description("Interactively resolve a superseded farm's colliding data left behind by a prior launch.")
+    .action(async (name: string) => {
+      const result = await resolveFarmConflicts({
+        fs: realFarmFs,
+        identitiesDir: paths.identitiesDir,
+        identity: name,
+        decide: async (conflict) => {
+          const choice = await realPromptsPort.select<FarmConflictChoice>({
+            message:
+              `"${conflict.name}" exists both in the superseded farm (${conflict.previousRoot}) and the ` +
+              `current one (${conflict.farmRoot}). Which should be kept?`,
+            options: [
+              { value: "keep-new", label: "Keep the current farm's copy", hint: "discards the superseded one" },
+              { value: "keep-old", label: "Keep the superseded farm's copy", hint: "replaces the current one" },
+              { value: "skip", label: "Skip for now", hint: "leaves both copies, asks again next time" },
+            ],
+          });
+          return realPromptsPort.isCancel(choice) ? "skip" : choice;
+        },
+      });
+
+      if (result.resolved.length === 0) {
+        console.log(`No superseded farm data to resolve for identity "${name}".`);
+        return;
+      }
+      for (const conflict of result.resolved) {
+        console.log(`  ${conflict.name}: ${conflict.choice}`);
+      }
+      console.log(
+        `Resolved ${result.resolved.length} conflict(s) — ${result.removed.length} superseded director(ies) fully ` +
+          `cleared, ${result.retained.length} still retained pending a skipped conflict.`,
+      );
     });
 
   identity

@@ -90,7 +90,7 @@ function isKnownOptionValue<Value extends string>(value: string, options: readon
   return options.some((option) => option.value === value);
 }
 
-const realPromptsPort: PromptsPort = {
+export const realPromptsPort: PromptsPort = {
   select: <Value extends string>(params: SelectParams<Value>) =>
     clack
       .select({

@@ -197,7 +197,7 @@ function collectCanonicalCounterparts(fs: FarmFs, claudeHome: string, farmListin
 }
 
 /** Inputs to `carryOver`. */
-interface CarryOverParams {
+export interface CarryOverParams {
   readonly fs: FarmFs;
   /** The superseded farm, already renamed aside. */
   readonly previousRoot: string;
@@ -206,7 +206,7 @@ interface CarryOverParams {
 }
 
 /** What `carryOver` moved and what it could not. */
-interface CarryOverResult {
+export interface CarryOverResult {
   /** Top-level names moved from the superseded farm into the new one. */
   readonly carried: readonly string[];
   /** Top-level names left behind because the new farm has its own entry of that name. */
@@ -220,9 +220,9 @@ interface CarryOverResult {
  *
  * Anything the previous resync built itself is skipped rather than carried: a symlink is a view of the canonical tree with no data of its own, and a directory the manifest records as materialised had its real children adopted into `~/.claude` before the swap ever started. Everything else is real local data and moves across by rename, so a credential file is relocated rather than duplicated — never briefly existing as two copies on disk.
  *
- * A name that exists in both is reported rather than resolved. Overwriting the new farm's own entry would discard whatever the resync just decided; overwriting the old one would discard data. The caller keeps the superseded farm on disk in that case.
+ * A name that exists in both is reported rather than resolved automatically here — overwriting the new farm's own entry would discard whatever the resync just decided; overwriting the old one would discard data. The caller keeps the superseded farm on disk in that case. Exported so `launcher/farmResolve.ts` can reuse this exact collision detection for `claude-use identity resolve`'s interactive pass, rather than a second implementation that could drift from this one.
  */
-function carryOver(params: CarryOverParams): CarryOverResult {
+export function carryOver(params: CarryOverParams): CarryOverResult {
   const manifest = readFarmManifest(params.fs, params.previousRoot);
   const accounted = new Set<string>([FARM_MANIFEST_FILENAME]);
   for (const rel of manifest?.materialised ?? []) {
@@ -687,7 +687,7 @@ export function resyncFarm(params: ResyncFarmParams): ResyncFarmResult {
       ...resolved.diagnostics,
       ...reconciliation.diagnostics,
       ...outcome.diagnostics,
-      ...recoveryDiagnostics(recovery),
+      ...recoveryDiagnostics(recovery, params.identity),
     ];
 
     const farmExists = params.fs.lstat(farmRoot) !== undefined;
@@ -722,7 +722,7 @@ export function resyncFarm(params: ResyncFarmParams): ResyncFarmResult {
         message:
           `The superseded farm was left at ${swap.retainedPrevious} because it still holds ` +
           `${swap.collided.join(", ")}, which the new farm has its own entry for. Nothing was overwritten in either ` +
-          "direction; review it and remove the directory once you are satisfied.",
+          `direction; run \`claude-use identity resolve ${params.identity}\` to resolve it interactively.`,
         subject: swap.retainedPrevious,
       });
     }
@@ -743,7 +743,7 @@ export function resyncFarm(params: ResyncFarmParams): ResyncFarmResult {
 }
 
 /** Turns a recovery result into the one diagnostic worth reporting about it, or nothing when there was nothing to recover. */
-export function recoveryDiagnostics(recovery: RecoveryResult): Diagnostic[] {
+export function recoveryDiagnostics(recovery: RecoveryResult, identity: string): Diagnostic[] {
   if (!recovery.recovered) {
     return [];
   }
@@ -758,7 +758,10 @@ export function recoveryDiagnostics(recovery: RecoveryResult): Diagnostic[] {
     parts.push(`finished carrying local state out of ${recovery.completed.length} superseded farm(s)`);
   }
   if (recovery.retained.length > 0) {
-    parts.push(`kept ${recovery.retained.join(", ")}, which still holds data the current farm also has an entry for`);
+    parts.push(
+      `kept ${recovery.retained.join(", ")}, which still holds data the current farm also has an entry for — ` +
+        `run \`claude-use identity resolve ${identity}\` to resolve it interactively`,
+    );
   }
   return [
     {
