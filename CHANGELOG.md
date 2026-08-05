@@ -1,3 +1,9 @@
+## [1.2.1](https://github.com/ExaDev/claude-use/compare/v1.2.0...v1.2.1) (2026-08-05)
+
+### Bug Fixes
+
+* scope the shared Turbo cache key by runner architecture, not just OS ([7e43b7f](https://github.com/ExaDev/claude-use/commit/7e43b7f7e80e06a80f82ad452c1639ec249608ce))
+
 ## [1.2.0](https://github.com/ExaDev/claude-use/compare/v1.1.0...v1.2.0) (2026-08-05)
 
 ### Features
