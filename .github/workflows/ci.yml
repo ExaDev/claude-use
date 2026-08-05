@@ -346,6 +346,45 @@ jobs:
           # Blanked, not omitted -- an inherited NPM_TOKEN/NODE_AUTH_TOKEN would otherwise be used in preference to the OIDC exchange.
           NODE_AUTH_TOKEN: ""
 
+  # Publishes the same build as an additional scoped alias, @exadev/claude-use, to GitHub Packages -- so anyone with npm.pkg.github.com configured against this org can install without ever touching npmjs.com. A dedicated job, not folded into publish-npm above: GitHub Packages has no OIDC trusted-publishing exchange, and pnpm/npm attempt that exchange whenever id-token: write is granted regardless of which registry is actually being published to -- confirmed elsewhere in this org to fail with a 401 when a GitHub Packages leg shared a job holding that permission. This job deliberately never requests id-token: write and authenticates with a plain packages: write GITHUB_TOKEN instead.
+  publish-github-packages:
+    name: Publish alias to GitHub Packages
+    if: needs.semantic-release.outputs.published == 'true'
+    runs-on: ubuntu-latest
+    needs: [semantic-release, build-arm64]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .tool-versions
+          cache: pnpm
+          registry-url: "https://npm.pkg.github.com"
+          # Explicit, not inferred: setup-node's scope default only matches the scoped package.json name if package.json is already scoped by the time this step runs, and the rewrite below happens after it.
+          scope: "@exadev"
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm build:bundle
+
+      - name: Rewrite package name and registry for the GitHub Packages scope
+        # GitHub Packages requires the npm package name to be scoped to the repo owner. Rewriting the fields rather than maintaining a second package.json keeps this alias from drifting away from the real package's metadata. publishConfig.registry has to be overridden too: it takes precedence over the .npmrc registry-url set by setup-node above, so without it the publish would silently target registry.npmjs.org instead, which GITHUB_TOKEN can't authenticate against.
+        run: |
+          npm pkg set name="@exadev/claude-use"
+          npm pkg set publishConfig.registry="https://npm.pkg.github.com"
+
+      - run: npm publish --access public
+        env:
+          # GitHub Packages has no OIDC exchange to attempt, so this job (unlike publish-npm above) authenticates with a token -- GITHUB_TOKEN is sufficient and needs no separate secret.
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # Stays bespoke rather than using the composite action: it needs the schema regen+stamp sequence and a multi-artifact download fan-in, neither of which fits a single generic command.
   release:
     name: Publish GitHub Release
