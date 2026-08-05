@@ -48,6 +48,17 @@ npm install -g @exadev/claude-use
 
 See [Publishing to npm](#publishing-to-npm) for why this alias is published by its own separate CI job rather than as a second step of the plain npm one above.
 
+**Alternative: directly from GitHub, no registry at all.** No npmjs.com, no GitHub Packages, no authentication of any kind — npm and npx both support installing straight from a git repository:
+
+```bash
+npx github:ExaDev/claude-use identity list
+npm install -g github:ExaDev/claude-use
+```
+
+This clones the repo and builds it from source rather than fetching a published tarball: npm automatically runs the `prepare` script for any git-based install — unlike `prepublishOnly`, which only fires on `npm publish` — and `prepare` is what builds `dist/cli.cjs` here, the same script that sets up this repo's own git hooks for a contributor's local clone. Slower than every other channel (a real esbuild build in place of downloading a prebuilt artifact) and pinned to whatever ref you reference — append `#<tag-or-branch-or-commit>` after the repo (e.g. `github:ExaDev/claude-use#v1.1.0`) — rather than resolved by semver the way the other channels are.
+
+**On npm ≥ 12**, git dependencies are refused unless allowed explicitly — add `--allow-git=root` to either command above (`--allow-git=all` crashes npm 12.0.2 outright; `root`, meaning "a direct dependency of the project being installed," is both narrower and the one that actually works). npm may also print a warning that `claude-use`'s `prepare` script was "blocked because they are not covered by allowScripts" — in testing against npm 12.0.2 the script still ran and produced a working install regardless of that message, but if a future npm patch actually enforces it, approve the script explicitly (`npm approve-scripts claude-use` on npm 11, `npm install-scripts approve claude-use` on npm 12 — the command was renamed between versions) before installing.
+
 **Alternative: Homebrew (macOS and Linux).**
 
 ```bash

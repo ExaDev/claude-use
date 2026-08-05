@@ -27,7 +27,7 @@
     "dist/cli.cjs"
   ],
   "scripts": {
-    "prepare": "husky",
+    "prepare": "husky && node scripts/build.mts --bundle-only",
     "typecheck": "turbo run _typecheck",
     "_typecheck": "tsc --noEmit",
     "lint": "turbo run _lint",
