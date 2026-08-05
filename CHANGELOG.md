@@ -1,3 +1,9 @@
+## [1.2.0](https://github.com/ExaDev/claude-use/compare/v1.1.0...v1.2.0) (2026-08-05)
+
+### Features
+
+* build the bundle in prepare so a git-based install actually works ([f9166d5](https://github.com/ExaDev/claude-use/commit/f9166d5b148a8a4c978811557b5ec38e5add82af))
+
 ## [1.1.0](https://github.com/ExaDev/claude-use/compare/v1.0.0...v1.1.0) (2026-08-05)
 
 ### Features
