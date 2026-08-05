@@ -1,3 +1,9 @@
+## [1.1.0](https://github.com/ExaDev/claude-use/compare/v1.0.0...v1.1.0) (2026-08-05)
+
+### Features
+
+* publish claude-use as @exadev/claude-use to GitHub Packages ([aa9d5bc](https://github.com/ExaDev/claude-use/commit/aa9d5bcb32451df86a039d46f9f431f9f2bf5794))
+
 ## [1.0.0](https://github.com/ExaDev/claude-use/compare/v0.6.0...v1.0.0) (2026-08-05)
 
 ### ⚠ BREAKING CHANGES
