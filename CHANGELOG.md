@@ -1,3 +1,9 @@
+## [1.3.1](https://github.com/ExaDev/claude-use/compare/v1.3.0...v1.3.1) (2026-08-05)
+
+### Bug Fixes
+
+* run the PR-triggered platform build jobs even though semantic-release is skipped ([a2058d5](https://github.com/ExaDev/claude-use/commit/a2058d5ae1569654719f20d1470d00e304e78eaf)), references [#7](https://github.com/ExaDev/claude-use/issues/7)
+
 ## [1.3.0](https://github.com/ExaDev/claude-use/compare/v1.2.1...v1.3.0) (2026-08-05)
 
 ### Features
