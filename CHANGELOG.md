@@ -1,3 +1,9 @@
+## [1.3.0](https://github.com/ExaDev/claude-use/compare/v1.2.1...v1.3.0) (2026-08-05)
+
+### Features
+
+* build and smoke test each platform binary on pull requests ([7c297b3](https://github.com/ExaDev/claude-use/commit/7c297b3de25c0cef073b8c41af495f39f91241fb))
+
 ## [1.2.1](https://github.com/ExaDev/claude-use/compare/v1.2.0...v1.2.1) (2026-08-05)
 
 ### Bug Fixes
