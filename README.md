@@ -36,6 +36,18 @@ npm install -g claude-use
 
 The npm package deliberately ships only the `claude-use` bin — not `claude` — specifically so there's no bin-name ambiguity for `npx` to ever get wrong (a real, observed bug in at least one current npm version: a package exposing two bin names, one matching the package name, could still resolve to the wrong one on a bare `npx <package>@version` invocation). `claude-use run [args...]` reaches the exact same launcher pipeline regardless of that. `claude-use shim enable` works here too on macOS/Linux — an npm install's own bundle is directly executable via its own shebang once hardlinked to a bare `claude` — though not on Windows, where an npm-installed claude-use running under Node has no bundled `.exe` to link from; use Scoop there instead.
 
+**Alternative: GitHub Packages.** The identical npm bundle above is also published under a scoped alias, `@exadev/claude-use`, to GitHub Packages — for anyone who already authenticates against `npm.pkg.github.com` for other org packages and would rather not add npmjs.com as a second registry. GitHub Packages requires authentication for every install even though the package itself is public, so this needs a personal access token with at least `read:packages` scope and one line of `.npmrc` configuration before either command below works:
+
+```bash
+echo "@exadev:registry=https://npm.pkg.github.com" >> ~/.npmrc
+echo "//npm.pkg.github.com/:_authToken=<a GitHub PAT with read:packages>" >> ~/.npmrc
+
+npx @exadev/claude-use identity list
+npm install -g @exadev/claude-use
+```
+
+See [Publishing to npm](#publishing-to-npm) for why this alias is published by its own separate CI job rather than as a second step of the plain npm one above.
+
 **Alternative: Homebrew (macOS and Linux).**
 
 ```bash
