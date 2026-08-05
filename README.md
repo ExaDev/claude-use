@@ -1,5 +1,7 @@
 # claude-use
 
+[![GitHub](https://img.shields.io/badge/GitHub-181717?logo=github&logoColor=white)](https://github.com/ExaDev/claude-use) [![npm](https://img.shields.io/badge/npm-CB3837?logo=npm&logoColor=white)](https://www.npmjs.com/package/claude-use) [![Release](https://img.shields.io/github/v/release/ExaDev/claude-use)](https://github.com/ExaDev/claude-use/releases/latest) [![CI](https://img.shields.io/github/actions/workflow/status/ExaDev/claude-use/ci.yml?branch=main)](https://github.com/ExaDev/claude-use/actions) [![Homebrew](https://img.shields.io/badge/Homebrew-FBB040?logo=homebrew&logoColor=white)](https://github.com/ExaDev/homebrew-claude-use) [![Scoop](https://img.shields.io/badge/Scoop-205081?logo=data:image/svg%2Bxml%3Bbase64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTExIDJoMnY5aC0yek0xMiAyMmE3IDcgMCAwIDAgNy03SDVhNyA3IDAgMCAwIDcgN3oiIGZpbGw9IiNmZmYiLz48L3N2Zz4K&logoColor=white)](https://github.com/ExaDev/scoop-claude-use)
+
 A profile manager and launcher for [Claude Code](https://claude.com/claude-code) that lets one person run multiple logins from one machine while controlling — precisely, and per working directory — what gets shared between them.
 
 ## The problem
