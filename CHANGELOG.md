@@ -1,3 +1,9 @@
+## [0.6.0](https://github.com/ExaDev/claude-use/compare/v0.5.0...v0.6.0) (2026-08-05)
+
+### Features
+
+* add claude-use identity resolve for interactive farm-conflict resolution ([7fb1095](https://github.com/ExaDev/claude-use/commit/7fb10955a7e340a97be5873b2ff8e7b020ea680d))
+
 ## [0.5.0](https://github.com/ExaDev/claude-use/compare/v0.4.0...v0.5.0) (2026-08-04)
 
 ### Features
