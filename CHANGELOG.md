@@ -1,3 +1,15 @@
+## [1.0.0](https://github.com/ExaDev/claude-use/compare/v0.6.0...v1.0.0) (2026-08-05)
+
+### ⚠ BREAKING CHANGES
+
+* none -- this commit changes no behavior. It marks the
+  existing CLI and configuration surface as the v1.0 stable public API,
+  triggering the major version bump to reflect that commitment.
+
+### Miscellaneous Chores
+
+* declare the public API stable at v1.0.0 ([1213ae2](https://github.com/ExaDev/claude-use/commit/1213ae2c26a8e5b0e5a73aa8c5a490542d4de1a8))
+
 ## [0.6.0](https://github.com/ExaDev/claude-use/compare/v0.5.0...v0.6.0) (2026-08-05)
 
 ### Features
