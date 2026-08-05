@@ -135,24 +135,29 @@ jobs:
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi
 
-  # Everything below this point only runs once semantic-release has actually tagged a release -- the jobs above already validate every ordinary push and PR, so a release being published is the only time this project builds five platform binaries, publishes npm, and updates two external tap repos. All of it runs in this SAME workflow run (see the semantic-release job's own comment above for why), so every job below checks out `ref: main`, not the triggering commit, to build from the post-release HEAD semantic-release just pushed.
+  # The six build-and-smoke-test jobs below (build-arm64 through build-windows-arm64) run on every PR too, not just a published release -- each builds the real SEA binary for its platform and directly executes it, so an architecture-specific build regression (a bad esbuild target, a cache collision serving another architecture's binary -- confirmed to actually happen once, see setup-and-run/action.yml's own comment) is caught before merge rather than after a real release ships a broken binary. On a PR, each job checks out the PR's own head commit; on a push to main, `ref: main` picks up the post-release HEAD semantic-release just pushed (see the semantic-release job's own comment above for why that's a separate commit from the one that triggered this run). Publishing -- npm, GitHub Packages, the GitHub Release itself, and the Homebrew/Scoop tap updates -- stays gated on `needs.semantic-release.outputs.published == 'true'` alone and never runs on a PR, since those all have real, one-way side effects a PR must never trigger.
 
   # macOS arm64 is the only target Node core itself tests and verifies `--build-sea` against upstream. This job's binary is the one this project actually stands behind. Runs on GitHub's standard hosted `macos-latest` (Apple Silicon by default) -- this repo is public, so standard hosted runners are free and unmetered on every plan, and GitHub manages the rolling image migration this label implies, so there's no version-pinned image for this project to keep bumping as older ones deprecate.
   build-arm64:
     name: Build (macOS arm64, verified)
-    if: needs.semantic-release.outputs.published == 'true'
+    if: github.event_name == 'pull_request' || needs.semantic-release.outputs.published == 'true'
     needs: [semantic-release]
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: main
+          ref: ${{ github.event_name == 'pull_request' && github.sha || 'main' }}
 
       - uses: ./.github/actions/setup-and-run
         with:
           task: build
           command: pnpm build
+
+      - name: Smoke test the built binary
+        run: |
+          ./dist/claude-use-sea --version
+          ./dist/claude-use-sea --help >/dev/null
 
       - run: mv dist/claude-use-sea dist/claude-use-macos-arm64
       - run: shasum -a 256 dist/claude-use-macos-arm64 | awk '{print $1}' > dist/claude-use-macos-arm64.sha256
@@ -169,7 +174,7 @@ jobs:
   # Confirmed as of v0.2.7/v0.2.8: this binary segfaults on every invocation, including --version and --help -- the smoke test below has been silently swallowing this exact crash via `|| true` on every prior release; verify-tap-macos-x64/verify-install-script-macos-x64 (continue-on-error, further down this file) are what actually caught it. Reproduced locally under Rosetta with a real lldb backtrace (EXC_BAD_ACCESS in __cxx_global_var_init during dyld's static-initializer pass, before main() runs) and isolated to Node's own --build-sea via a trivial one-line script crashing identically -- not this project's bundle, build script, or code. This is a known, unfixed upstream limitation: nodejs/node#62893 reproduces the identical crash and was closed doc-only (nodejs/node#63181); the deeper thread nodejs/node#59553 floats an unconfirmed theory (postject's LIEF-based Mach-O injection corrupting the binary so dyld misreads a segment as oversized TLS) but closed stale, with a Node core maintainer stating it's "unlikely that anyone would invest time in fixing it for macOS" given x64 macOS's Tier 2 deprioritisation. No workaround is available in this project's control (no alternate codesign invocation, sea-config.json option, or Node flag) -- see README.md's "Build (Node SEA)" section for the full writeup.
   build-x64-best-effort:
     name: Build (macOS x64, best-effort, unverified)
-    if: needs.semantic-release.outputs.published == 'true'
+    if: github.event_name == 'pull_request' || needs.semantic-release.outputs.published == 'true'
     needs: [semantic-release]
     runs-on: macos-15-intel
     continue-on-error: true
@@ -177,7 +182,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: main
+          ref: ${{ github.event_name == 'pull_request' && github.sha || 'main' }}
 
       - uses: ./.github/actions/setup-and-run
         with:
@@ -200,18 +205,23 @@ jobs:
   # Linux is tested by Node core against every distribution it supports except Alpine, and every architecture except s390x — x64 and arm64 are both fully within that verified set, unlike macOS x64 above.
   build-linux-x64:
     name: Build (Linux x64, verified)
-    if: needs.semantic-release.outputs.published == 'true'
+    if: github.event_name == 'pull_request' || needs.semantic-release.outputs.published == 'true'
     needs: [semantic-release]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: main
+          ref: ${{ github.event_name == 'pull_request' && github.sha || 'main' }}
 
       - uses: ./.github/actions/setup-and-run
         with:
           task: build
           command: pnpm build
+
+      - name: Smoke test the built binary
+        run: |
+          ./dist/claude-use-sea --version
+          ./dist/claude-use-sea --help >/dev/null
 
       - run: mv dist/claude-use-sea dist/claude-use-linux-x64
       - run: shasum -a 256 dist/claude-use-linux-x64 | awk '{print $1}' > dist/claude-use-linux-x64.sha256
@@ -225,18 +235,23 @@ jobs:
 
   build-linux-arm64:
     name: Build (Linux arm64, verified)
-    if: needs.semantic-release.outputs.published == 'true'
+    if: github.event_name == 'pull_request' || needs.semantic-release.outputs.published == 'true'
     needs: [semantic-release]
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: main
+          ref: ${{ github.event_name == 'pull_request' && github.sha || 'main' }}
 
       - uses: ./.github/actions/setup-and-run
         with:
           task: build
           command: pnpm build
+
+      - name: Smoke test the built binary
+        run: |
+          ./dist/claude-use-sea --version
+          ./dist/claude-use-sea --help >/dev/null
 
       - run: mv dist/claude-use-sea dist/claude-use-linux-arm64
       - run: shasum -a 256 dist/claude-use-linux-arm64 | awk '{print $1}' > dist/claude-use-linux-arm64.sha256
@@ -251,18 +266,24 @@ jobs:
   # Node core documents full Windows support for --build-sea, unlike the macOS x64 caveat above.
   build-windows-x64:
     name: Build (Windows x64, verified)
-    if: needs.semantic-release.outputs.published == 'true'
+    if: github.event_name == 'pull_request' || needs.semantic-release.outputs.published == 'true'
     needs: [semantic-release]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: main
+          ref: ${{ github.event_name == 'pull_request' && github.sha || 'main' }}
 
       - uses: ./.github/actions/setup-and-run
         with:
           task: build
           command: pnpm build
+
+      - name: Smoke test the built binary
+        shell: pwsh
+        run: |
+          & .\dist\claude-use-sea.exe --version
+          & .\dist\claude-use-sea.exe --help | Out-Null
 
       - name: Package archive
         shell: pwsh
@@ -283,18 +304,24 @@ jobs:
   # Node's own SEA docs list Windows as regularly tested without the x64-only carve-out that explicitly excludes macOS x64 above -- Windows arm64 is a fully verified target from day one, not a best-effort one. windows-11-arm is GitHub's standard hosted Windows-on-Arm runner, generally available and free for this public repo like every other standard runner.
   build-windows-arm64:
     name: Build (Windows arm64, verified)
-    if: needs.semantic-release.outputs.published == 'true'
+    if: github.event_name == 'pull_request' || needs.semantic-release.outputs.published == 'true'
     needs: [semantic-release]
     runs-on: windows-11-arm
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: main
+          ref: ${{ github.event_name == 'pull_request' && github.sha || 'main' }}
 
       - uses: ./.github/actions/setup-and-run
         with:
           task: build
           command: pnpm build
+
+      - name: Smoke test the built binary
+        shell: pwsh
+        run: |
+          & .\dist\claude-use-sea.exe --version
+          & .\dist\claude-use-sea.exe --help | Out-Null
 
       - name: Package archive
         shell: pwsh
