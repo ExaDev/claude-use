@@ -1,3 +1,9 @@
+## [1.4.0](https://github.com/ExaDev/claude-use/compare/v1.3.2...v1.4.0) (2026-08-06)
+
+### Features
+
+* add a unified profile wizard and offer it when a profile is missing ([218f531](https://github.com/ExaDev/claude-use/commit/218f53154334fa9921638f7b0a966b09906bedf5))
+
 ## [1.3.2](https://github.com/ExaDev/claude-use/compare/v1.3.1...v1.3.2) (2026-08-06)
 
 ### Bug Fixes
