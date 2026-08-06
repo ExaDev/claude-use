@@ -15,10 +15,11 @@ import {
   type LaunchFlags,
 } from "./config/schema";
 import { collectBoolPairs } from "./cli/parsers";
+import { CliError } from "./cliError";
 import type { LayoutPaths } from "./paths";
 
 /** Raised by any operation that requires a configuration profile to already exist, when it does not. */
-export class ProfileNotFoundError extends Error {
+export class ProfileNotFoundError extends CliError {
   constructor(readonly profileName: string) {
     super(`No configuration profile named "${profileName}" — run \`claude-use profile create ${profileName}\` first.`);
     this.name = "ProfileNotFoundError";
@@ -26,7 +27,7 @@ export class ProfileNotFoundError extends Error {
 }
 
 /** Raised by `createProfile` when a profile with the given name already has a file. */
-export class ProfileAlreadyExistsError extends Error {
+export class ProfileAlreadyExistsError extends CliError {
   constructor(readonly profileName: string) {
     super(`A configuration profile named "${profileName}" already exists.`);
     this.name = "ProfileAlreadyExistsError";
@@ -34,7 +35,7 @@ export class ProfileAlreadyExistsError extends Error {
 }
 
 /** Raised when a `--category` patch names something other than one of the four overridable categories (e.g. `secret`, or a typo). */
-export class InvalidCategoryNameError extends Error {
+export class InvalidCategoryNameError extends CliError {
   constructor(readonly categoryName: string) {
     super(`"${categoryName}" is not a category a configuration profile may toggle (runtime, history, knowledge, settings).`);
     this.name = "InvalidCategoryNameError";

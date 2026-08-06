@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 
+import { CliError } from "../cliError";
 import type { FarmFs } from "./ports";
 
 /** How long a lock file may sit untouched before a later launch treats it as abandoned and takes it. Deliberately far longer than any plausible resync of a large `~/.claude`, since stealing a live lock is worse than waiting behind one. */
@@ -26,7 +27,7 @@ export interface IdentityLock {
 }
 
 /** Raised when another process holds the identity's lock and did not release it within the retry budget. */
-export class IdentityLockBusyError extends Error {
+export class IdentityLockBusyError extends CliError {
   constructor(
     readonly identity: string,
     readonly lockPath: string,

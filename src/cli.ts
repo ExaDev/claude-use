@@ -9,6 +9,7 @@ import { cosmiconfigReader } from "./config/load";
 import { CategoryClassificationOverlaySchema, CategoryClassificationSchema } from "./config/schema";
 import { readJson } from "./config/store";
 import { registerCheckCommand } from "./check";
+import { CliError } from "./cliError";
 import { registerConfigureCommand } from "./configure";
 import { isInvokedAsClaude, registerShimCommand, resolveOwnInstallDirs } from "./claudeShim";
 import { registerDoctorCommand } from "./doctor";
@@ -140,13 +141,27 @@ function runClaude(argvOverride?: readonly string[]): void {
   });
 }
 
-function main(): void {
+/**
+ * `parseAsync`, not `parse` -- some Commander actions (e.g. `identity resolve <name>`) are `async` and return a promise Commander never awaits under `parse`, so a rejection there would surface as an unhandled promise rejection rather than reaching the catch below.
+ */
+async function main(): Promise<void> {
   const invokedName = path.basename(process.argv[1] ?? "claude-use");
   if (isInvokedAsClaude(invokedName)) {
     runClaude();
-  } else if (!tryRunAtIdentityShortcut(resolveLayoutPaths(), process.argv.slice(2))) {
-    buildClaudeUseProgram().parse(process.argv);
+    return;
   }
+  if (tryRunAtIdentityShortcut(resolveLayoutPaths(), process.argv.slice(2))) {
+    return;
+  }
+  await buildClaudeUseProgram().parseAsync(process.argv);
 }
 
-main();
+main().catch((error: unknown) => {
+  // A CliError represents an expected, user-facing failure -- bad input, a missing identity/profile/rule -- so it prints as a clean one-line message. Anything else is a genuine bug and is rethrown to crash with its full stack trace, which is more useful for diagnosing it than swallowing it would be.
+  if (error instanceof CliError) {
+    console.error(error.message);
+    process.exitCode = 1;
+    return;
+  }
+  throw error;
+});

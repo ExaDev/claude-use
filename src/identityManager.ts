@@ -5,12 +5,13 @@ import type { Command } from "commander";
 import { applyPatch, readJson, writeJsonAtomic, writeTextAtomic } from "./config/store";
 import { IdentitySchema, type Identity } from "./config/schema";
 import { realPromptsPort } from "./configure";
+import { CliError } from "./cliError";
 import { resolveFarmConflicts, type FarmConflictChoice } from "./launcher/farmResolve";
 import type { LayoutPaths } from "./paths";
 import { realFarmFs } from "./realPorts";
 
 /** Raised by any operation that requires an identity to already exist, when it does not. */
-export class IdentityNotFoundError extends Error {
+export class IdentityNotFoundError extends CliError {
   constructor(readonly name: string) {
     super(`No identity named "${name}" — run \`claude-use identity add ${name}\` first.`);
     this.name = "IdentityNotFoundError";
@@ -18,7 +19,7 @@ export class IdentityNotFoundError extends Error {
 }
 
 /** Raised by `addIdentity` when an identity with the given name already has an `identity.json`. */
-export class IdentityAlreadyExistsError extends Error {
+export class IdentityAlreadyExistsError extends CliError {
   constructor(readonly identityName: string) {
     super(`An identity named "${identityName}" already exists.`);
     this.name = "IdentityAlreadyExistsError";

@@ -1,6 +1,7 @@
 import picomatch from "picomatch";
 
 import { isCategoryName, type CategoryName } from "../config/schema";
+import { CliError } from "../cliError";
 import { encodeProjectPattern, UnrootedProjectPathError } from "./projects";
 import type { CompiledRule } from "./types";
 
@@ -36,7 +37,7 @@ export interface CanonicalKey {
 }
 
 /** Raised when an entries key cannot be canonicalised. Carries the offending key so the diagnostic can name it. */
-export class EntryKeyError extends Error {
+export class EntryKeyError extends CliError {
   constructor(
     readonly key: string,
     message: string,

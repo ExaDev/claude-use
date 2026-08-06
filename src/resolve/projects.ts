@@ -6,6 +6,8 @@
  * The encoding is therefore many-to-one: `~/work/clients/acme`, `~/work/clients-acme`, and `~/work-clients/acme` all produce the identical name. That makes it impossible to invert, so this module never tries: there is no decode function here, and `projects.test.ts` asserts the module's export list to keep it that way. Only the forward direction — real path to encoded name — is ever computed, and `detectEncodingAmbiguity` reports when a pattern's encoded form could plausibly correspond to more than one real path rather than resolving it silently.
  */
 
+import { CliError } from "../cliError";
+
 const NON_ALPHANUMERIC = /[^A-Za-z0-9]/g;
 /** The same character class without the `g` flag, so `.test()` is stateless — a global regex carries `lastIndex` between calls and would return alternating results. */
 const NON_ALPHANUMERIC_CHARACTER = /[^A-Za-z0-9]/;
@@ -53,7 +55,7 @@ export function splitOnWildcards(pattern: string): PatternFragment[] {
 }
 
 /** Raised when a `history/projects/` pattern's path fragment is neither `~`-rooted nor absolute, so there is no real path to encode. */
-export class UnrootedProjectPathError extends Error {
+export class UnrootedProjectPathError extends CliError {
   constructor(readonly fragment: string) {
     super(
       `"${fragment}" is not a rooted path. Everything written after the "history/projects/" prefix is a real ` +

@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { readJson, writeJsonAtomic } from "./config/store";
 import { findExecutableInDir, realContentSourcePath, realOwnExecutablePath } from "./realPorts";
+import { CliError } from "./cliError";
 import type { LayoutPaths } from "./paths";
 
 /** The claude-shim.json marker's own shape: never hand-edited, so it lives here rather than in `src/config/schema.ts`'s user-editable schemas (and is correctly excluded from `scripts/gen-schema.mts`'s published-schema generation, which only ever imports from that file). */
@@ -16,7 +17,7 @@ export const ClaudeShimStateSchema = z.strictObject({
 export type ClaudeShimState = z.infer<typeof ClaudeShimStateSchema>;
 
 /** Raised by enableClaudeShim/disableClaudeShim when the target path exists but doesn't look like claude-use's own doing (no matching claude-shim.json marker, and not a hardlink of the currently-running executable) — refuses rather than silently clobbering or deleting something an installer never created. Bypassed by --force. */
-export class ForeignClaudeEntryError extends Error {
+export class ForeignClaudeEntryError extends CliError {
   constructor(
     readonly targetPath: string,
     readonly action: "enable" | "disable",
@@ -30,7 +31,7 @@ export class ForeignClaudeEntryError extends Error {
 }
 
 /** Raised by enableClaudeShim when the running executable cannot possibly be turned into a directly-runnable `claude` command: an npm/Node install of claude-use on Windows, which has no bundled .exe and no shebang-based dispatch the way POSIX does. Not bypassed by --force — this isn't a safety refusal, it's "this would produce a broken file." */
-export class UnsupportedShimSourceError extends Error {
+export class UnsupportedShimSourceError extends CliError {
   constructor(readonly contentSourcePath: string) {
     super(
       `Cannot create a working \`claude\` command from ${contentSourcePath} on Windows: an npm-installed ` +

@@ -1,8 +1,9 @@
 import { collectBoolPairs, parseBoolPairList, splitTopLevelCommas } from "../cli/parsers";
 import { ENTRY_KEY_RE, expandAllCategoryKey, isOverridableCategory, type CategoryMap, type Entries } from "../config/schema";
+import { CliError } from "../cliError";
 
 /** Raised when a `--category`/`CLAUDE_USE_CATEGORY_OVERRIDE` key names something other than one of the four overridable categories. */
-export class InvalidCliCategoryError extends Error {
+export class InvalidCliCategoryError extends CliError {
   constructor(readonly categoryName: string) {
     super(`"${categoryName}" is not a category this launch may toggle (runtime, history, knowledge, settings).`);
     this.name = "InvalidCliCategoryError";
@@ -10,7 +11,7 @@ export class InvalidCliCategoryError extends Error {
 }
 
 /** Raised when a `--share`/`--hide`/`CLAUDE_USE_ENTRY_OVERRIDE` path is missing its required `<category>/` prefix. */
-export class InvalidCliEntryKeyError extends Error {
+export class InvalidCliEntryKeyError extends CliError {
   constructor(readonly key: string) {
     super(`"${key}" is not a valid entries key — it must start with "<category>/", e.g. "knowledge/skills/commit".`);
     this.name = "InvalidCliEntryKeyError";

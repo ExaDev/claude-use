@@ -468,9 +468,9 @@ One compiled binary backs both `claude` and `claude-use` — the entrypoint disp
 ```
 src/
   cli.ts                 # entrypoint; dispatches on invoked name -> launcher vs identity/profile-manager subcommands
+  cliError.ts             # CliError — the base class every user-facing error extends, so main()'s top-level catch can print a clean message instead of a stack trace
   paths.ts               # CLAUDE_USE_HOME-aware layout paths — every other module resolves ~/.claude-use/... paths through this, never inline
   pathNorm.ts            # rule-path normalisation/ancestor helpers shared across the resolver and directory rules
-  exit.ts                # exit code constants
   versionDiscovery.ts     # portable "find the real claude binary" logic
   realPorts.ts            # the real filesystem/spawn/proc/clock/git ports wired into runLauncher by cli.ts (tests wire fakes instead)
   launcher.ts             # runLauncher: thin orchestration over launcher/* below
@@ -528,6 +528,12 @@ scripts/
 install.sh                 # downloads the latest release's binary for the running OS/arch, verifies its
                              # checksum, and installs it as both `claude` and `claude-use` in ~/.local/bin
 ```
+
+### Error reporting: `CliError` vs. everything else
+
+Every custom error this project throws to represent an expected, user-facing failure — a missing identity/profile/rule, a malformed config file, an invalid `--category`/`--share`/`--hide` flag — extends `CliError` (`src/cliError.ts`), an otherwise-empty abstract subclass of `Error`. `main()` in `src/cli.ts` wraps its whole body in one top-level `try`/`catch`: a `CliError` prints as `error.message` alone, with no stack trace, and exits `1`; anything else — a genuine, unanticipated bug — is rethrown and crashes with its full stack trace, which is more useful for diagnosing it than swallowing it would be. Before this existed, an error like `IdentityNotFoundError` thrown from the `@name` shortcut or from inside a Commander action (`identity use`, `profile create`, etc.) crashed with a raw Node.js stack trace instead of the one-line message its own constructor already built — the class carried the right text, nothing at the top ever caught it. `main()` calls `buildClaudeUseProgram().parseAsync(process.argv)`, not `.parse()`, specifically so an `async` action's rejection (e.g. `identity resolve <name>`, which awaits an interactive prompt) reaches this same catch too, rather than surfacing as an unhandled promise rejection Commander's synchronous `.parse()` never awaits.
+
+`cliError.test.ts` asserts every one of these error classes actually extends `CliError` — the one regression `tsc`/`eslint` can never catch on their own, since a class silently reverting to `extends Error`, or a new one added without extending `CliError` at all, is still perfectly valid TypeScript.
 
 `schema.ts` models `categories` and `entries` differently despite their identical JSON-object appearance in every example above, because they have opposite key cardinality: `categories` only ever touches the four overridable names in the [category table](#category-based-sharing) plus the `all` shorthand, so it's a closed `z.strictObject({ all: z.boolean().optional(), runtime: z.boolean().optional(), history: z.boolean().optional(), knowledge: z.boolean().optional(), settings: z.boolean().optional() })` piped through a `.transform()` that expands `all` into the four real categories and drops it from the result — deliberately omitting `secret` from the shape entirely, so an attempted `secret` key is rejected at parse time rather than relying only on the runtime check described above — while `entries` is genuinely open-ended (any literal or glob path, each required to carry its `<category>/` prefix per the [Category-based sharing](#category-based-sharing) section above) and stays a `z.record(z.string().regex(ENTRY_KEY_RE), EntryValueSchema)`. The closed shape for `categories` also gives editors real key-name autocomplete from the published JSON Schema (the `schema/` directory above) — generated with Zod's `io: "input"` option specifically because a schema with a `.transform()` can't be represented in JSON Schema at all under the default `"output"` mode, and `"input"` is what a hand-written config actually needs describing anyway, which a record type couldn't offer either way.
 

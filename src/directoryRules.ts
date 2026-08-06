@@ -2,10 +2,11 @@ import type { Command } from "commander";
 
 import { readJson, writeJsonAtomic } from "./config/store";
 import { DirectoryRulesSchema, type DirectoryRule, type DirectoryRules } from "./config/schema";
+import { CliError } from "./cliError";
 import type { LayoutPaths } from "./paths";
 
 /** Raised by `removeRule` when no rule matches the given path exactly. */
-export class DirectoryRuleNotFoundError extends Error {
+export class DirectoryRuleNotFoundError extends CliError {
   constructor(readonly rulePath: string) {
     super(`No directory rule found for path "${rulePath}".`);
     this.name = "DirectoryRuleNotFoundError";

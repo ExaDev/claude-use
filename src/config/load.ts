@@ -1,6 +1,8 @@
 import { cosmiconfigSync, type PublicExplorerSync } from "cosmiconfig";
 import type { z } from "zod";
 
+import { CliError } from "../cliError";
+
 /**
  * A configuration file that has been read, parsed, and validated.
  *
@@ -53,7 +55,7 @@ export function captureRuleEntryOrders(value: unknown): readonly (readonly strin
 }
 
 /** Raised when a config file exists but fails Zod validation, so the caller can report the offending path alongside the issue list. */
-export class ConfigValidationError extends Error {
+export class ConfigValidationError extends CliError {
   constructor(
     readonly filepath: string,
     readonly issues: readonly z.core.$ZodIssue[],
