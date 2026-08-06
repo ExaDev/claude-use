@@ -1,3 +1,9 @@
+## [1.3.2](https://github.com/ExaDev/claude-use/compare/v1.3.1...v1.3.2) (2026-08-06)
+
+### Bug Fixes
+
+* catch known errors at the top level instead of crashing with a stack trace ([e7523a6](https://github.com/ExaDev/claude-use/commit/e7523a6d019258aab4feee93ccf7f36c47492c89))
+
 ## [1.3.1](https://github.com/ExaDev/claude-use/compare/v1.3.0...v1.3.1) (2026-08-05)
 
 ### Bug Fixes
