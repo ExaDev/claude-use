@@ -4,9 +4,10 @@ import type { Command } from "commander";
 
 import { applyPatch, readJson, writeJsonAtomic, writeTextAtomic } from "./config/store";
 import { IdentitySchema, type Identity } from "./config/schema";
-import { realPromptsPort } from "./configure";
+import { realPromptsPort, runProfileWizard } from "./configure";
 import { CliError } from "./cliError";
 import { resolveFarmConflicts, type FarmConflictChoice } from "./launcher/farmResolve";
+import { readProfile } from "./configProfiles";
 import type { LayoutPaths } from "./paths";
 import { realFarmFs } from "./realPorts";
 
@@ -227,7 +228,25 @@ export function registerIdentityCommand(program: Command, paths: LayoutPaths): v
   identity
     .command("set-default-profile <identity> <profile>")
     .description("Set an identity's default configuration profile.")
-    .action((identityName: string, profileName: string) => {
+    .action(async (identityName: string, profileName: string) => {
+      if (readProfile(paths, profileName) === undefined) {
+        const result = await runProfileWizard(realPromptsPort, {
+          paths,
+          defaultNewName: profileName,
+        });
+        if (result === undefined) {
+          console.log(`No configuration profile named "${profileName}" was created; nothing changed.`);
+          return;
+        }
+        if (result.name !== profileName) {
+          console.log(
+            `Created configuration profile "${result.name}" instead of "${profileName}". Set the identity's default to that name explicitly if that wasn't intended.`,
+          );
+        }
+        setDefaultConfigProfile(paths, identityName, result.name);
+        console.log(`Identity "${identityName}" now defaults to configuration profile "${result.name}".`);
+        return;
+      }
       setDefaultConfigProfile(paths, identityName, profileName);
       console.log(`Identity "${identityName}" now defaults to configuration profile "${profileName}".`);
     });

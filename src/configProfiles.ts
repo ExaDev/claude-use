@@ -16,6 +16,7 @@ import {
 } from "./config/schema";
 import { collectBoolPairs } from "./cli/parsers";
 import { CliError } from "./cliError";
+import { realPromptsPort, runProfileWizard } from "./configure";
 import type { LayoutPaths } from "./paths";
 
 /** Raised by any operation that requires a configuration profile to already exist, when it does not. */
@@ -46,7 +47,8 @@ function profileJsonPath(paths: LayoutPaths, name: string): string {
   return path.join(paths.configProfilesDir, `${name}.json`);
 }
 
-function profileExists(paths: LayoutPaths, name: string): boolean {
+/** True when a profile file exists for `name`, regardless of whether it validates. */
+export function profileExists(paths: LayoutPaths, name: string): boolean {
   return fs.existsSync(profileJsonPath(paths, name));
 }
 
@@ -186,6 +188,30 @@ export function registerProfileCommand(program: Command, paths: LayoutPaths): vo
       const extendsList = options.extends !== undefined && options.extends !== "" ? options.extends.split(",") : undefined;
       createProfile(paths, name, extendsList);
       console.log(`Created configuration profile "${name}".`);
+    });
+
+  profile
+    .command("wizard [name]")
+    .description(
+      "Interactively create a new configuration profile and choose its categories, or edit an existing one's categories.",
+    )
+    .action(async (name: string | undefined) => {
+      const result = await runProfileWizard(
+        realPromptsPort,
+        name === undefined
+          ? { paths }
+          : profileExists(paths, name)
+            ? { paths, existingName: name }
+            : { paths, createName: name },
+      );
+      if (result === undefined) {
+        return;
+      }
+      console.log(
+        result.created
+          ? `Created configuration profile "${result.name}".`
+          : `Updated configuration profile "${result.name}".`,
+      );
     });
 
   profile

@@ -10,14 +10,16 @@ import { CategoryClassificationOverlaySchema, CategoryClassificationSchema } fro
 import { readJson } from "./config/store";
 import { registerCheckCommand } from "./check";
 import { CliError } from "./cliError";
-import { registerConfigureCommand } from "./configure";
+import { realPromptsPort, registerConfigureCommand, runProfileWizard } from "./configure";
 import { isInvokedAsClaude, registerShimCommand, resolveOwnInstallDirs } from "./claudeShim";
 import { registerDoctorCommand } from "./doctor";
 import { registerIdentityCommand, tryRunAtIdentityShortcut } from "./identityManager";
-import { registerProfileCommand } from "./configProfiles";
+import { profileExists, registerProfileCommand } from "./configProfiles";
 import { registerRulesCommand } from "./directoryRules";
 import { resolveClaudeHome, resolveLayoutPaths, type LayoutPaths } from "./paths";
 import { runLauncher, type FarmRuntime } from "./launcher";
+import { parseLauncherArgv } from "./launcher/argv";
+import { decideConfigProfile, decideIdentity, loadIdentity } from "./launcher/identity";
 import { loadCascadeInput, readDirectorySelections } from "./launcher/cascade";
 import {
   realFarmFs,
@@ -67,8 +69,8 @@ function buildClaudeUseProgram(): Command {
     .allowUnknownOption()
     .helpOption(false)
     .argument("[args...]", "Arguments to forward, e.g. @<name>, --config-profile <name>, or any Claude Code flag.")
-    .action((args: string[]) => {
-      runClaude(args);
+    .action(async (args: string[]) => {
+      await runClaude(args);
     });
 
   return program;
@@ -124,9 +126,60 @@ function buildFarmRuntime(paths: LayoutPaths): {
 }
 
 /** Runs the launcher pipeline. `argvOverride`, when given, replaces `realProcPort`'s own `process.argv.slice(2)` -- this is what lets `claude-use run [args...]` reach the identical pipeline the `claude` binary name uses, fed the args Commander collected instead of the real argv. */
-function runClaude(argvOverride?: readonly string[]): void {
+async function runClaude(argvOverride?: readonly string[]): Promise<void> {
   const paths = resolveLayoutPaths();
   const farm = buildFarmRuntime(paths);
+
+  // When stdin is a real interactive terminal and a configuration profile was resolved for this launch but doesn't exist on disk yet, offer to create it via the wizard before launching — so the first reference to a new profile name doesn't silently run with no profile applied. A non-interactive context (a script, CI) keeps today's behaviour: the missing profile is a silent no-op for that cascade layer, and the launch proceeds without blocking.
+  if (process.stdin.isTTY) {
+    const procForDecision = argvOverride === undefined ? realProcPort : { ...realProcPort, argv: argvOverride };
+    const parsedArgv = parseLauncherArgv(procForDecision.argv);
+    const identityDecision = decideIdentity({
+      env: procForDecision.env,
+      argv0Identity: parsedArgv.identity,
+      ...(farm.directoryIdentity === undefined ? {} : { directoryPinnedIdentity: farm.directoryIdentity }),
+      readActiveIdentityFile: () => {
+        const raw = realFsPort.readFileUtf8(paths.activeIdentityFile);
+        if (raw === undefined) {
+          return undefined;
+        }
+        const trimmed = raw.trim();
+        return trimmed === "" ? undefined : trimmed;
+      },
+    });
+    const loadedIdentity =
+      identityDecision.name !== undefined
+        ? loadIdentity(paths.identitiesDir, identityDecision.name, realFsPort)
+        : undefined;
+    const configProfileDecision = decideConfigProfile({
+      env: procForDecision.env,
+      cliFlagConfigProfile: parsedArgv.configProfile,
+      ...(farm.directoryConfigProfile === undefined ? {} : { directoryRuleConfigProfile: farm.directoryConfigProfile }),
+      ...(loadedIdentity?.config.defaultConfigProfile === undefined
+        ? {}
+        : { identityDefaultConfigProfile: loadedIdentity.config.defaultConfigProfile }),
+      ...(farm.globalDefaultConfigProfile === undefined ? {} : { globalDefaultConfigProfile: farm.globalDefaultConfigProfile }),
+    });
+    if (
+      configProfileDecision.name !== undefined &&
+      !profileExists(paths, configProfileDecision.name) &&
+      !identityDecision.configDirEscapeHatch
+    ) {
+      const choice = await realPromptsPort.select({
+        message:
+          `Configuration profile "${configProfileDecision.name}" was selected for this launch (via ${configProfileDecision.source}) ` +
+          `but doesn't exist yet. Create it now?`,
+        options: [
+          { value: "create", label: "Create it and choose categories" },
+          { value: "skip", label: "Launch without it" },
+        ],
+      });
+      if (!realPromptsPort.isCancel(choice) && choice === "create") {
+        await runProfileWizard(realPromptsPort, { paths, createName: configProfileDecision.name });
+      }
+    }
+  }
+
   runLauncher({
     paths,
     fs: realFsPort,
@@ -147,7 +200,7 @@ function runClaude(argvOverride?: readonly string[]): void {
 async function main(): Promise<void> {
   const invokedName = path.basename(process.argv[1] ?? "claude-use");
   if (isInvokedAsClaude(invokedName)) {
-    runClaude();
+    await runClaude();
     return;
   }
   if (tryRunAtIdentityShortcut(resolveLayoutPaths(), process.argv.slice(2))) {

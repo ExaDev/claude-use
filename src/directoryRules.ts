@@ -3,6 +3,8 @@ import type { Command } from "commander";
 import { readJson, writeJsonAtomic } from "./config/store";
 import { DirectoryRulesSchema, type DirectoryRule, type DirectoryRules } from "./config/schema";
 import { CliError } from "./cliError";
+import { realPromptsPort, runProfileWizard } from "./configure";
+import { readProfile } from "./configProfiles";
 import type { LayoutPaths } from "./paths";
 
 /** Raised by `removeRule` when no rule matches the given path exactly. */
@@ -92,8 +94,23 @@ export function registerRulesCommand(program: Command, paths: LayoutPaths): void
     .description("Add or update a directory rule.")
     .option("--profile <name>", "Configuration profile to select for this path.")
     .option("--identity <name>", "Identity to pin for this path.")
-    .action((rulePath: string, options: { profile?: string; identity?: string }) => {
-      addDirectoryRule(paths, rulePath, { configProfile: options.profile, identity: options.identity });
+    .action(async (rulePath: string, options: { profile?: string; identity?: string }) => {
+      let profileName = options.profile;
+      if (profileName !== undefined && readProfile(paths, profileName) === undefined) {
+        const result = await runProfileWizard(realPromptsPort, { paths, defaultNewName: profileName });
+        if (result === undefined) {
+          console.log(`No configuration profile named "${profileName}" was created; the rule pins identity only.`);
+          profileName = undefined;
+        } else {
+          if (result.name !== options.profile) {
+            console.log(
+              `Created configuration profile "${result.name}" instead of "${options.profile}". The rule selects that name.`,
+            );
+          }
+          profileName = result.name;
+        }
+      }
+      addDirectoryRule(paths, rulePath, { configProfile: profileName, identity: options.identity });
       console.log(`Directory rule for "${rulePath}" saved.`);
     });
 

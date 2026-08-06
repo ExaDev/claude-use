@@ -11,10 +11,13 @@ import {
   chooseWriteTarget,
   describeWriteTarget,
   runConfigure,
+  runProfileWizard,
+  validateProfileName,
   type DirectoryLevelPresence,
   type MultiselectParams,
   type PromptsPort,
   type SelectParams,
+  type TextParams,
 } from "./configure";
 
 const CANCEL = Symbol("cancel");
@@ -39,6 +42,11 @@ function scriptedPrompts(answers: readonly unknown[]): { readonly port: PromptsP
     multiselect: <Value extends string>(params: MultiselectParams<Value>): Promise<readonly Value[] | symbol> => {
       messages.push(params.message);
       // @ts-expect-error test double: the scripted answer's shape is asserted by the test author, not statically provable against the generic Value
+      return Promise.resolve(next());
+    },
+    text: (params: TextParams): Promise<string | symbol> => {
+      messages.push(params.message);
+      // @ts-expect-error test double: the scripted answer's shape is asserted by the test author, not statically provable against string
       return Promise.resolve(next());
     },
     isCancel: (value): value is symbol => typeof value === "symbol",
@@ -361,5 +369,103 @@ describe("runConfigure without a global config file", () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("validateProfileName", () => {
+  it("rejects an empty name", () => {
+    expect(validateProfileName("")).toBe("A name is required.");
+  });
+
+  it("rejects a name starting with a non-alphanumeric character", () => {
+    expect(validateProfileName("-bad")).toContain("must start with a letter or digit");
+  });
+
+  it("accepts a valid name", () => {
+    expect(validateProfileName("client-acme")).toBeUndefined();
+  });
+
+  it("rejects a duplicate when existingNames is given", () => {
+    expect(validateProfileName("base", ["base", "other"])).toContain("already exists");
+  });
+
+  it("allows a name not in existingNames", () => {
+    expect(validateProfileName("new", ["base", "other"])).toBeUndefined();
+  });
+});
+
+describe("runProfileWizard", () => {
+  let paths: LayoutPaths;
+  let root: string;
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "wizard-test-"));
+    paths = buildLayoutPaths(root);
+  });
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("creates a new profile when given a name via the text prompt, then sets the chosen categories", async () => {
+    const { port } = scriptedPrompts(["work", ["history"]]);
+
+    const result = await runProfileWizard(port, { paths });
+
+    expect(result).toEqual({ name: "work", created: true });
+    expect(readProfile(paths, "work")?.categories?.history).toBe(true);
+    expect(readProfile(paths, "work")?.categories?.knowledge).toBe(false);
+  });
+
+  it("creates a profile with a fixed name (createName), skipping the name prompt", async () => {
+    const { port, messages } = scriptedPrompts([["history"]]);
+
+    const result = await runProfileWizard(port, { paths, createName: "auto" });
+
+    expect(result).toEqual({ name: "auto", created: true });
+    expect(messages.some((m) => m.includes("Name for"))).toBe(false);
+    expect(readProfile(paths, "auto")?.categories?.history).toBe(true);
+  });
+
+  it("edits an existing profile's categories, seeded from its current values", async () => {
+    createProfile(paths, "base");
+    const { port } = scriptedPrompts([["history"]]);
+
+    const result = await runProfileWizard(port, { paths, existingName: "base" });
+
+    expect(result).toEqual({ name: "base", created: false });
+    expect(readProfile(paths, "base")?.categories?.history).toBe(true);
+    expect(readProfile(paths, "base")?.categories?.knowledge).toBe(false);
+  });
+
+  it("returns undefined and writes nothing when the name prompt is cancelled", async () => {
+    const { port } = scriptedPrompts([CANCEL]);
+
+    const result = await runProfileWizard(port, { paths });
+
+    expect(result).toBeUndefined();
+    expect(readProfile(paths, "anything")).toBeUndefined();
+  });
+
+  it("returns undefined when the categories multiselect is cancelled (create mode)", async () => {
+    const { port } = scriptedPrompts(["work", CANCEL]);
+
+    const result = await runProfileWizard(port, { paths });
+
+    expect(result).toBeUndefined();
+    // The profile file was already created by the name step, but the categories were never applied — an empty profile the user can re-edit later.
+    expect(readProfile(paths, "work")).toEqual({});
+  });
+
+  it("writes only the categories that changed, not all four", async () => {
+    createProfile(paths, "base");
+    const { port } = scriptedPrompts([[]]);
+
+    const result = await runProfileWizard(port, { paths, existingName: "base" });
+
+    expect(result).toEqual({ name: "base", created: false });
+    // Selecting nothing deselects knowledge and settings (shared by default), so only those two land in the file.
+    const categories = readProfile(paths, "base")?.categories;
+    expect(categories).toEqual({ knowledge: false, settings: false });
   });
 });

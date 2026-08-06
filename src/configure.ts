@@ -19,7 +19,7 @@ import {
 } from "./config/schema";
 import { applyPatch, readJson } from "./config/store";
 import { IdentityNotFoundError, readIdentity } from "./identityManager";
-import { readGlobalConfig, listProfiles, readProfile, setProfileCategories, setProfileEntries } from "./configProfiles";
+import { readGlobalConfig, listProfiles, readProfile, setProfileCategories, setProfileEntries, createProfile } from "./configProfiles";
 import { readDirectoryRules, writeDirectoryRules } from "./directoryRules";
 import { loadCascadeInput, readDirectorySelections, PORTABLE_CONFIG_FILENAME, PORTABLE_LOCAL_CONFIG_FILENAME } from "./launcher/cascade";
 import { buildEntryFacts } from "./launcher/farm";
@@ -58,14 +58,23 @@ export interface MultiselectParams<Value extends string> {
   readonly initialValues?: readonly Value[];
 }
 
+/** Parameters for a free-text prompt. */
+export interface TextParams {
+  readonly message: string;
+  readonly placeholder?: string;
+  /** Returns an error string to reject the value and re-prompt, or `undefined` to accept it. */
+  readonly validate?: (value: string) => string | undefined;
+}
+
 /**
  * The interactive-prompt surface `runConfigure` needs, abstracted so it can be driven by a scripted sequence of pre-programmed answers in tests instead of a real TTY — the same injected-ports pattern `src/launcher/ports.ts` already uses for the filesystem, spawn, and clock.
  *
- * `select`/`multiselect` resolve to a `symbol` when the user cancels (Ctrl-C), mirroring `@clack/prompts`' own cancellation contract exactly, so `isCancel` is the one place that distinguishes a real answer from a cancellation.
+ * `select`/`multiselect`/`text` resolve to a `symbol` when the user cancels (Ctrl-C), mirroring `@clack/prompts`' own cancellation contract exactly, so `isCancel` is the one place that distinguishes a real answer from a cancellation.
  */
 export interface PromptsPort {
   readonly select: <Value extends string>(params: SelectParams<Value>) => Promise<Value | symbol>;
   readonly multiselect: <Value extends string>(params: MultiselectParams<Value>) => Promise<readonly Value[] | symbol>;
+  readonly text: (params: TextParams) => Promise<string | symbol>;
   /** A type guard, mirroring `@clack/prompts`' own `isCancel` exactly, so a passing check narrows `Value | symbol` down to `Value` at every call site without a further cast. */
   readonly isCancel: (value: unknown) => value is symbol;
   readonly cancel: (message?: string) => void;
@@ -116,6 +125,16 @@ export const realPromptsPort: PromptsPort = {
         }
         throw new Error(`@clack/prompts multiselect() returned a value not present in the given options: ${value.join(", ")}`);
       }),
+  text: (params: TextParams) =>
+    clack.text({
+      message: params.message,
+      ...(params.placeholder === undefined ? {} : { placeholder: params.placeholder }),
+      ...(params.validate === undefined
+        ? {}
+        : {
+            validate: (value: string | undefined) => params.validate?.(value ?? ""),
+          }),
+    }),
   isCancel: clack.isCancel,
   cancel: clack.cancel,
   intro: clack.intro,
@@ -436,6 +455,113 @@ const CATEGORY_LABELS: Record<"secret" | OverridableCategory, string> = {
   knowledge: "knowledge",
   settings: "settings",
 };
+
+/* -------------------------------------------------------------------------------------------------- */
+/* runProfileWizard: the unified create-or-edit flow.                                                  */
+/* -------------------------------------------------------------------------------------------------- */
+
+/** A profile name must match the same shape as an identity name (`IdentitySchema`): start alphanumeric, then alphanumerics/dots/dashes/underscores. */
+const PROFILE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** Validates a candidate profile name for the wizard's text prompt: non-empty, matches the allowed shape, and (only when `existingNames` is given) not already taken. */
+export function validateProfileName(value: string, existingNames?: readonly string[]): string | undefined {
+  if (value.length === 0) {
+    return "A name is required.";
+  }
+  if (!PROFILE_NAME_RE.test(value)) {
+    return "Names must start with a letter or digit, and contain only letters, digits, dots, dashes, and underscores.";
+  }
+  if (existingNames?.includes(value)) {
+    return `A configuration profile named "${value}" already exists.`;
+  }
+  return undefined;
+}
+
+/**
+ * Inputs to `runProfileWizard` beyond the injected prompt/log ports. Split out so the launch path (which only has a `LayoutPaths`, not a full `ConfigureContext`) can call the wizard too.
+ *
+ * A discriminated union over three modes:
+ * - `{ existingName }`: edit an existing profile's categories.
+ * - `{ createName }`: create a new profile with this exact name (no name prompt), then choose categories. Used by the launch path, where the name is already decided.
+ * - `{ defaultNewName? }`: create a new profile, prompting for a name first (with an optional pre-filled default). Used by the manual commands.
+ */
+export type RunProfileWizardParams =
+  | { readonly paths: LayoutPaths; readonly existingName: string }
+  | { readonly paths: LayoutPaths; readonly createName: string }
+  | { readonly paths: LayoutPaths; readonly defaultNewName?: string };
+
+/** What `runProfileWizard` produced. */
+export interface ProfileWizardResult {
+  readonly name: string;
+  readonly created: boolean;
+}
+
+/**
+ * The unified create-or-edit flow for a configuration profile — one guided prompt sequence covering both cases the README previously split across `profile create` (empty, no categories) and `configure`'s "edit a profile directly" branch (categories only, profile must already exist).
+ *
+ * Given an `existingName`: edits that profile's categories in place via a multiselect, seeded from its current values. Given a `createName`: creates the empty file with that exact name, no name prompt, then runs the category multiselect. Given neither: prompts for a name first (validated against the allowed shape and against every existing profile name), creates the empty file, then runs the same multiselect. Either way, a cancel at any prompt writes nothing and returns `undefined` — the caller decides what to do (e.g. the launch path proceeds without the profile, the manual command just stops).
+ *
+ * Driven entirely by the injected `PromptsPort` so the whole flow is unit-testable with a scripted sequence of answers, the same way `runConfigure` already is.
+ */
+export async function runProfileWizard(
+  prompts: PromptsPort,
+  params: RunProfileWizardParams,
+): Promise<ProfileWizardResult | undefined> {
+  let name: string;
+  let created: boolean;
+
+  if ("existingName" in params) {
+    name = params.existingName;
+    created = false;
+  } else if ("createName" in params) {
+    name = params.createName;
+    createProfile(params.paths, name);
+    created = true;
+  } else {
+    const existing = listProfiles(params.paths).map((entry) => entry.name);
+    const entered = await prompts.text({
+      message: "Name for the new configuration profile:",
+      ...(params.defaultNewName === undefined ? {} : { placeholder: params.defaultNewName }),
+      validate: (value) => validateProfileName(value, existing),
+    });
+    if (prompts.isCancel(entered)) {
+      prompts.cancel("Cancelled.");
+      return undefined;
+    }
+    name = entered;
+    createProfile(params.paths, name);
+    created = true;
+  }
+
+  const profile = readProfile(params.paths, name) ?? {};
+  const current = resolveCategoryState((categoryName) => profile.categories?.[categoryName]);
+
+  const selected = await prompts.multiselect({
+    message: `Which categories should configuration profile "${name}" share?`,
+    options: OVERRIDABLE_CATEGORIES.map((categoryName) => ({
+      value: categoryName,
+      label: CATEGORY_LABELS[categoryName],
+      hint: current[categoryName] ? "currently shared" : "currently hidden",
+    })),
+    initialValues: OVERRIDABLE_CATEGORIES.filter((categoryName) => current[categoryName]),
+  });
+  if (prompts.isCancel(selected)) {
+    prompts.cancel("Cancelled.");
+    return undefined;
+  }
+
+  const patch: CategoryMap = {};
+  for (const categoryName of OVERRIDABLE_CATEGORIES) {
+    const nowShared = selected.includes(categoryName);
+    if (nowShared !== current[categoryName]) {
+      patch[categoryName] = nowShared;
+    }
+  }
+  if (Object.keys(patch).length > 0) {
+    setProfileCategories(params.paths, name, patch);
+  }
+  return { name, created };
+}
 
 async function runProfileDirectMode(context: ConfigureContext): Promise<void> {
   const { deps } = context;
