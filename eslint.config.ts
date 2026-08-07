@@ -32,6 +32,7 @@ export default tseslint.config(
   {
     plugins: { local: { rules: { "no-pointless-reassignment": noPointlessReassignmentRule } } },
     rules: {
+      "@typescript-eslint/ban-ts-comment": "error",
       "@typescript-eslint/consistent-type-assertions": ["error", { assertionStyle: "never" }],
       "@typescript-eslint/consistent-type-imports": ["error", { fixStyle: "inline-type-imports" }],
       "local/no-pointless-reassignment": "error",

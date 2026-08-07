@@ -22,10 +22,9 @@ import {
 
 const CANCEL = Symbol("cancel");
 
-/** A scripted `PromptsPort`: each call to `select`/`multiselect` consumes the next entry from `answers`, in order. Records every prompt's message so a test can assert what was actually asked. */
+/** A scripted `PromptsPort`: each call to `select`/`multiselect`/`text` consumes the next entry from `answers`, in order. Records every prompt's message so a test can assert what was actually asked. */
 function scriptedPrompts(answers: readonly unknown[]): { readonly port: PromptsPort; readonly messages: string[] } {
   const messages: string[] = [];
-  // Records intro/outro/cancel calls so the port methods are real (not empty) stubs, without mixing lifecycle messages into `messages`, which several tests assert on with exact `toEqual` against prompt messages only.
   const lifecycleCalls: string[] = [];
   let index = 0;
   const next = (): unknown => {
@@ -36,18 +35,31 @@ function scriptedPrompts(answers: readonly unknown[]): { readonly port: PromptsP
   const port: PromptsPort = {
     select: <Value extends string>(params: SelectParams<Value>): Promise<Value | symbol> => {
       messages.push(params.message);
-      // @ts-expect-error test double: the scripted answer's shape is asserted by the test author, not statically provable against the generic Value
-      return Promise.resolve(next());
+      const answer = next();
+      if (typeof answer === "symbol") return Promise.resolve(answer);
+      const option = params.options.find((o) => o.value === answer);
+      if (option === undefined) throw new Error(`scripted select answer not in options: ${String(answer)}`);
+      return Promise.resolve(option.value);
     },
     multiselect: <Value extends string>(params: MultiselectParams<Value>): Promise<readonly Value[] | symbol> => {
       messages.push(params.message);
-      // @ts-expect-error test double: the scripted answer's shape is asserted by the test author, not statically provable against the generic Value
-      return Promise.resolve(next());
+      const answer = next();
+      if (typeof answer === "symbol") return Promise.resolve(answer);
+      if (!Array.isArray(answer)) throw new Error(`scripted multiselect answer is not an array: ${String(answer)}`);
+      const selected: Value[] = [];
+      for (const item of answer) {
+        const option = params.options.find((o) => o.value === item);
+        if (option === undefined) throw new Error(`scripted multiselect answer not in options: ${String(item)}`);
+        selected.push(option.value);
+      }
+      return Promise.resolve(selected);
     },
     text: (params: TextParams): Promise<string | symbol> => {
       messages.push(params.message);
-      // @ts-expect-error test double: the scripted answer's shape is asserted by the test author, not statically provable against string
-      return Promise.resolve(next());
+      const answer = next();
+      if (typeof answer === "symbol") return Promise.resolve(answer);
+      if (typeof answer !== "string") throw new Error(`scripted text answer is not a string: ${String(answer)}`);
+      return Promise.resolve(answer);
     },
     isCancel: (value): value is symbol => typeof value === "symbol",
     cancel: (message) => lifecycleCalls.push(`cancel:${message ?? ""}`),

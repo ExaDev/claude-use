@@ -136,18 +136,18 @@ describe("store.ts", () => {
     });
 
     it("throws ConfigValidationError when the merged result fails validation", () => {
+      const refinementSchema = z.strictObject({ name: z.string().min(1), count: z.number().positive().optional() });
       const filePath = path.join(dir, "profile.json");
-      writeJsonAtomic(filePath, { name: "acme" });
-      // @ts-expect-error deliberately wrong-typed patch, to confirm runtime validation catches it
-      expect(() => applyPatch(filePath, schema, { count: "nope" })).toThrow(ConfigValidationError);
+      writeJsonAtomic(filePath, { name: "acme", count: 5 });
+      expect(() => applyPatch(filePath, refinementSchema, { count: -1 })).toThrow(ConfigValidationError);
     });
 
     it("does not mutate the on-disk file at all when the patch fails validation", () => {
+      const refinementSchema = z.strictObject({ name: z.string().min(1), count: z.number().positive().optional() });
       const filePath = path.join(dir, "profile.json");
-      writeJsonAtomic(filePath, { name: "acme" });
+      writeJsonAtomic(filePath, { name: "acme", count: 5 });
       const before = fs.readFileSync(filePath, "utf8");
-      // @ts-expect-error deliberately wrong-typed patch, to confirm runtime validation catches it
-      expect(() => applyPatch(filePath, schema, { count: "nope" })).toThrow();
+      expect(() => applyPatch(filePath, refinementSchema, { count: -1 })).toThrow();
       expect(fs.readFileSync(filePath, "utf8")).toBe(before);
     });
 
