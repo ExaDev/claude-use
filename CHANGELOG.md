@@ -1,3 +1,13 @@
+## [1.5.0](https://github.com/ExaDev/claude-use/compare/v1.4.0...v1.5.0) (2026-08-07)
+
+### Features
+
+* offer an identity setup wizard when [@name](https://github.com/name) targets a missing identity ([62c5819](https://github.com/ExaDev/claude-use/commit/62c5819cafaa24bbe5f1cdc711b336225413a0ab))
+
+### Bug Fixes
+
+* override js-yaml to ^4.3.1 to clear CVE-2026-59870 ([57eede9](https://github.com/ExaDev/claude-use/commit/57eede98d06f30e74bcd3051a77105bd276455e1))
+
 ## [1.4.0](https://github.com/ExaDev/claude-use/compare/v1.3.2...v1.4.0) (2026-08-06)
 
 ### Features
