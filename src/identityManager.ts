@@ -4,7 +4,7 @@ import type { Command } from "commander";
 
 import { applyPatch, readJson, writeJsonAtomic, writeTextAtomic } from "./config/store";
 import { IdentitySchema, type Identity } from "./config/schema";
-import { realPromptsPort, runProfileWizard } from "./configure";
+import { realPromptsPort, runProfileWizard, type PromptsPort } from "./configure";
 import { CliError } from "./cliError";
 import { resolveFarmConflicts, type FarmConflictChoice } from "./launcher/farmResolve";
 import { readProfile } from "./configProfiles";
@@ -67,13 +67,56 @@ export function useIdentity(paths: LayoutPaths, name: string): void {
 }
 
 /**
+ * The interactive setup wizard for a new identity, offered by the `@<name>` shortcut and `identity use` when the identity doesn't exist yet and stdin is a real terminal.
+ *
+ * Confirms the user wants to create the identity, then optionally creates a default configuration profile (reusing `runProfileWizard`), links them, and sets the identity as active. A cancel at any step writes nothing beyond what was already committed — the identity is only created after the first confirm, and the profile wizard's own cancel handling means a profile-only cancellation still leaves the identity usable. Returns `true` when the identity was created and set active; `false` when the user declined at the initial confirm.
+ *
+ * Driven entirely by the injected `PromptsPort` so the whole flow is unit-testable with a scripted sequence of answers.
+ */
+export async function runIdentityWizard(prompts: PromptsPort, paths: LayoutPaths, name: string): Promise<boolean> {
+  const choice = await prompts.select({
+    message: `No identity named "${name}" exists yet. Create it now?`,
+    options: [
+      { value: "create", label: "Create it" },
+      { value: "cancel", label: "Cancel" },
+    ],
+  });
+  if (prompts.isCancel(choice) || choice === "cancel") {
+    prompts.cancel("Cancelled.");
+    return false;
+  }
+
+  addIdentity(paths, name);
+
+  const profileChoice = await prompts.select({
+    message: `Create a default configuration profile for "${name}"?`,
+    options: [
+      { value: "create", label: "Create and configure a profile" },
+      { value: "skip", label: "Skip for now" },
+    ],
+  });
+  if (!prompts.isCancel(profileChoice) && profileChoice === "create") {
+    const result = await runProfileWizard(prompts, { paths, defaultNewName: name });
+    if (result !== undefined) {
+      setDefaultConfigProfile(paths, name, result.name);
+    }
+  }
+
+  useIdentity(paths, name);
+  prompts.outro(`Identity "${name}" is set up and active.`);
+  return true;
+}
+
+/**
  * Handles the `claude-use @<name>` shortcut for `claude-use identity use <name>` — terser, and matches the `@name` convention `run @name`/`claude @name` already use for selecting an identity, rather than introducing a new one.
  *
  * Deliberately requires the `@` prefix and requires `@<name>` to be the *only* argument, rather than also accepting a bare `claude-use <name>`: identity names are user-chosen and unconstrained against the registered subcommand vocabulary (`identity`, `profile`, `rules`, `check`, `configure`, `doctor`, `shim`, `run`), so a bare positional name could collide with a real subcommand — today by an unlikely coincidence, but the tool's own vocabulary only grows over time. `@` makes the token unambiguous on sight and guarantees no future subcommand name can ever collide with it.
  *
  * Returns `false` when `argv` doesn't match this exact one-argument `@name` shape at all, so the caller falls through to normal Commander subcommand dispatch (including its own "unknown command" error for anything else). Returns `true` once handled, whether that meant switching identity or letting `useIdentity`'s own `IdentityNotFoundError` propagate for an unknown name — both are this shortcut's own outcome, not a fallthrough case.
+ *
+ * When the identity doesn't exist and stdin is a real interactive terminal, the function offers to run `runIdentityWizard` instead of throwing immediately. A non-interactive context (a script, CI) keeps the old behaviour: `IdentityNotFoundError` propagates and prints its one-line message.
  */
-export function tryRunAtIdentityShortcut(paths: LayoutPaths, argv: readonly string[]): boolean {
+export async function tryRunAtIdentityShortcut(paths: LayoutPaths, argv: readonly string[]): Promise<boolean> {
   if (argv.length !== 1) {
     return false;
   }
@@ -82,7 +125,18 @@ export function tryRunAtIdentityShortcut(paths: LayoutPaths, argv: readonly stri
     return false;
   }
   const name = token.slice(1);
-  useIdentity(paths, name);
+  if (!identityExists(paths, name)) {
+    if (process.stdin.isTTY) {
+      const created = await runIdentityWizard(realPromptsPort, paths, name);
+      if (!created) {
+        return true;
+      }
+    } else {
+      useIdentity(paths, name);
+    }
+  } else {
+    useIdentity(paths, name);
+  }
   console.log(`Active identity is now "${name}".`);
   return true;
 }
@@ -164,8 +218,15 @@ export function registerIdentityCommand(program: Command, paths: LayoutPaths): v
   identity
     .command("use <name>")
     .description("Persistently select the active identity.")
-    .action((name: string) => {
-      useIdentity(paths, name);
+    .action(async (name: string) => {
+      if (!identityExists(paths, name) && process.stdin.isTTY) {
+        const created = await runIdentityWizard(realPromptsPort, paths, name);
+        if (!created) {
+          return;
+        }
+      } else {
+        useIdentity(paths, name);
+      }
       console.log(`Active identity is now "${name}".`);
     });
 

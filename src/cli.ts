@@ -203,7 +203,7 @@ async function main(): Promise<void> {
     await runClaude();
     return;
   }
-  if (tryRunAtIdentityShortcut(resolveLayoutPaths(), process.argv.slice(2))) {
+  if (await tryRunAtIdentityShortcut(resolveLayoutPaths(), process.argv.slice(2))) {
     return;
   }
   await buildClaudeUseProgram().parseAsync(process.argv);

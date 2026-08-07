@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildLayoutPaths, type LayoutPaths } from "./paths";
+import type { MultiselectParams, PromptsPort, SelectParams } from "./configure";
 import {
   IdentityAlreadyExistsError,
   IdentityNotFoundError,
@@ -11,11 +12,53 @@ import {
   listIdentities,
   readActiveIdentity,
   readIdentity,
+  runIdentityWizard,
   setAllowAmbientCredential,
   setDefaultConfigProfile,
   tryRunAtIdentityShortcut,
   useIdentity,
 } from "./identityManager";
+
+/** A scripted `PromptsPort` for identity wizard tests: each call consumes the next answer in order. */
+function scriptedIdentityPrompts(answers: readonly unknown[]): PromptsPort {
+  let index = 0;
+  const next = (): unknown => {
+    const value = answers[index];
+    index += 1;
+    return value;
+  };
+  return {
+    select: <Value extends string>(params: SelectParams<Value>): Promise<Value | symbol> => {
+      const answer = next();
+      if (typeof answer === "symbol") return Promise.resolve(answer);
+      const option = params.options.find((o) => o.value === answer);
+      if (option === undefined) throw new Error(`scripted select answer not in options: ${String(answer)}`);
+      return Promise.resolve(option.value);
+    },
+    multiselect: <Value extends string>(params: MultiselectParams<Value>): Promise<readonly Value[] | symbol> => {
+      const answer = next();
+      if (typeof answer === "symbol") return Promise.resolve(answer);
+      if (!Array.isArray(answer)) throw new Error(`scripted multiselect answer is not an array: ${String(answer)}`);
+      const selected: Value[] = [];
+      for (const item of answer) {
+        const option = params.options.find((o) => o.value === item);
+        if (option === undefined) throw new Error(`scripted multiselect answer not in options: ${String(item)}`);
+        selected.push(option.value);
+      }
+      return Promise.resolve(selected);
+    },
+    text: (): Promise<string | symbol> => {
+      const answer = next();
+      if (typeof answer === "symbol") return Promise.resolve(answer);
+      if (typeof answer !== "string") throw new Error(`scripted text answer is not a string: ${String(answer)}`);
+      return Promise.resolve(answer);
+    },
+    isCancel: (value: unknown): value is symbol => typeof value === "symbol",
+    cancel: () => undefined,
+    intro: () => undefined,
+    outro: () => undefined,
+  };
+}
 
 describe("identityManager", () => {
   let root: string;
@@ -79,38 +122,69 @@ describe("identityManager", () => {
   });
 
   describe("tryRunAtIdentityShortcut", () => {
-    it("switches the active identity for a bare @<name> argument", () => {
+    it("switches the active identity for a bare @<name> argument", async () => {
       addIdentity(paths, "exadev");
-      expect(tryRunAtIdentityShortcut(paths, ["@exadev"])).toBe(true);
+      expect(await tryRunAtIdentityShortcut(paths, ["@exadev"])).toBe(true);
       expect(readActiveIdentity(paths)).toBe("exadev");
     });
 
-    it("propagates IdentityNotFoundError for an unknown @<name>, same as identity use", () => {
-      expect(() => tryRunAtIdentityShortcut(paths, ["@ghost"])).toThrow(IdentityNotFoundError);
+    it("propagates IdentityNotFoundError for an unknown @<name> in a non-interactive context", async () => {
+      await expect(tryRunAtIdentityShortcut(paths, ["@ghost"])).rejects.toThrow(IdentityNotFoundError);
     });
 
-    it("returns false and touches nothing for a bare name with no @ prefix", () => {
+    it("returns false and touches nothing for a bare name with no @ prefix", async () => {
       addIdentity(paths, "exadev");
-      expect(tryRunAtIdentityShortcut(paths, ["exadev"])).toBe(false);
+      expect(await tryRunAtIdentityShortcut(paths, ["exadev"])).toBe(false);
       expect(readActiveIdentity(paths)).toBeUndefined();
     });
 
-    it("returns false for a lone @ with no name", () => {
-      expect(tryRunAtIdentityShortcut(paths, ["@"])).toBe(false);
+    it("returns false for a lone @ with no name", async () => {
+      expect(await tryRunAtIdentityShortcut(paths, ["@"])).toBe(false);
     });
 
-    it("returns false when there is more than one argument, even if the first is @<name>", () => {
+    it("returns false when there is more than one argument, even if the first is @<name>", async () => {
       addIdentity(paths, "exadev");
-      expect(tryRunAtIdentityShortcut(paths, ["@exadev", "extra"])).toBe(false);
+      expect(await tryRunAtIdentityShortcut(paths, ["@exadev", "extra"])).toBe(false);
       expect(readActiveIdentity(paths)).toBeUndefined();
     });
 
-    it("returns false for no arguments at all", () => {
-      expect(tryRunAtIdentityShortcut(paths, [])).toBe(false);
+    it("returns false for no arguments at all", async () => {
+      expect(await tryRunAtIdentityShortcut(paths, [])).toBe(false);
     });
 
-    it("returns false for a real subcommand name, leaving it to Commander's own dispatch", () => {
-      expect(tryRunAtIdentityShortcut(paths, ["identity"])).toBe(false);
+    it("returns false for a real subcommand name, leaving it to Commander's own dispatch", async () => {
+      expect(await tryRunAtIdentityShortcut(paths, ["identity"])).toBe(false);
+    });
+  });
+
+  describe("runIdentityWizard", () => {
+    it("creates the identity, a profile, and sets it as active when the user accepts every step", async () => {
+      const prompts = scriptedIdentityPrompts(["create", "create", "work", ["history"]]);
+      const result = await runIdentityWizard(prompts, paths, "scienap");
+
+      expect(result).toBe(true);
+      expect(readIdentity(paths, "scienap")).toBeDefined();
+      expect(readActiveIdentity(paths)).toBe("scienap");
+      expect(readIdentity(paths, "scienap")?.defaultConfigProfile).toBe("work");
+    });
+
+    it("creates only the identity when the user skips profile creation", async () => {
+      const prompts = scriptedIdentityPrompts(["create", "skip"]);
+      const result = await runIdentityWizard(prompts, paths, "personal");
+
+      expect(result).toBe(true);
+      expect(readIdentity(paths, "personal")).toBeDefined();
+      expect(readActiveIdentity(paths)).toBe("personal");
+      expect(readIdentity(paths, "personal")?.defaultConfigProfile).toBeUndefined();
+    });
+
+    it("creates nothing and returns false when the user declines at the initial confirm", async () => {
+      const prompts = scriptedIdentityPrompts(["cancel"]);
+      const result = await runIdentityWizard(prompts, paths, "ghost");
+
+      expect(result).toBe(false);
+      expect(readIdentity(paths, "ghost")).toBeUndefined();
+      expect(readActiveIdentity(paths)).toBeUndefined();
     });
   });
 
