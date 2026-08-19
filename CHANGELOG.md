@@ -1,3 +1,23 @@
+## [2.0.0](https://github.com/ExaDev/claude-use/compare/v1.5.0...v2.0.0) (2026-08-19)
+
+### ⚠ BREAKING CHANGES
+
+* history (projects, sessions, session-env, teams, tasks,
+  todos, history.jsonl, transcripts, paste-cache, file-history, plans,
+  workflows, jobs, debug, downloads, chrome) is now shared between identities
+  by default. Anyone relying on the old closed-by-default behaviour for
+  confidentiality between identities must now set categories.history=false
+  explicitly, via a configuration profile, directory rule, or
+  ~/.claude-use/config.json's global categories override.
+
+### Features
+
+* share history by default, isolating identities on credentials alone ([bc8a9bd](https://github.com/ExaDev/claude-use/commit/bc8a9bdab232fb4c68612f380360dc4e850a6ec9))
+
+### Bug Fixes
+
+* override nanoid to ^3.3.18 to clear GHSA-2v37-7h3g-55p8 ([114a8dc](https://github.com/ExaDev/claude-use/commit/114a8dc0a7df52eb07ae0b001f5627761916d1e0))
+
 ## [1.5.0](https://github.com/ExaDev/claude-use/compare/v1.4.0...v1.5.0) (2026-08-07)
 
 ### Features
