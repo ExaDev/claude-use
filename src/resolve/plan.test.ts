@@ -37,7 +37,7 @@ describe("uniform subtrees", () => {
   const facts = makeFacts({
     "skills/commit/SKILL.md": true,
     "skills/other/SKILL.md": true,
-    "todos/a.json": true,
+    "shell-snapshots/snap.sh": true,
   });
 
   it("collapses a wholly-shared directory into one symlink rather than exploding it", () => {
@@ -48,7 +48,7 @@ describe("uniform subtrees", () => {
 
   it("omits a wholly-unshared directory entirely", () => {
     const farmPlan = plan([], facts);
-    expect(kindOf(farmPlan, "todos")).toBe("omit");
+    expect(kindOf(farmPlan, "shell-snapshots")).toBe("omit");
   });
 
   it("points every symlink at the canonical path under claudeHome", () => {
@@ -121,14 +121,14 @@ describe("conditional rules force materialisation", () => {
   });
 
   it("materialises a directory whose own decision differs from its children's, since one symlink cannot express both", () => {
-    // `projects` itself is not shared (the `history` default), while two project directories under it are. Linking the whole directory would share every project directory it will ever contain, including ones written after this resync.
+    // `projects` itself is shared (the `history` default), while two project directories under it are explicitly closed. Linking the whole directory would share every project directory it will ever contain, including ones written after this resync, so those two exclusions could never take effect.
     const facts = makeFacts({
       "projects/-home-testuser-work-a/session.jsonl": true,
       "projects/-home-testuser-work-b/session.jsonl": true,
     });
-    const farmPlan = plan([layer(0, { entries: { "history/projects/~/work/*": true } })], facts);
+    const farmPlan = plan([layer(0, { entries: { "history/projects/~/work/*": false } })], facts);
     expect(kindOf(farmPlan, "projects")).toBe("materialise");
-    expect(kindOf(farmPlan, "projects/-home-testuser-work-a")).toBe("link");
+    expect(kindOf(farmPlan, "projects/-home-testuser-work-a")).toBe("omit");
   });
 
   it("materialises even when the conditional rule's condition currently fails everywhere", () => {

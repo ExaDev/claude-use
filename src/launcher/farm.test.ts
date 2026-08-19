@@ -9,7 +9,7 @@ import { IdentityLockBusyError, identityLockPath } from "./lock";
 const IDENTITIES_DIR = `${FAKE_HOME}/.claude-use/identities`;
 const FARM = `${IDENTITIES_DIR}/work`;
 
-/** A canonical `~/.claude` covering one entry from each category that matters: shared knowledge, shared settings, unshared history, and an unshareable secret. */
+/** A canonical `~/.claude` covering one entry from each category that matters: shared knowledge, shared settings, shared history, and an unshareable secret. */
 const CANONICAL = {
   [`${FAKE_CLAUDE_HOME}/skills/commit/SKILL.md`]: "commit skill",
   [`${FAKE_CLAUDE_HOME}/skills/review/SKILL.md`]: "review skill",
@@ -51,7 +51,7 @@ function farmWrites(fs: FakeFarmFs): string[] {
 }
 
 describe("resyncFarm", () => {
-  it("builds a farm from nothing, sharing knowledge and settings while omitting history and secrets", () => {
+  it("builds a farm from nothing, sharing knowledge, settings, and history while omitting secrets", () => {
     const fs = createFakeFarmFs(CANONICAL);
 
     const result = resyncFarm(params(fs));
@@ -59,12 +59,12 @@ describe("resyncFarm", () => {
     expect(result.noOp).toBe(false);
     expect(fs.linkTarget(`${FARM}/skills`)).toBe(`${FAKE_CLAUDE_HOME}/skills`);
     expect(fs.linkTarget(`${FARM}/settings.json`)).toBe(`${FAKE_CLAUDE_HOME}/settings.json`);
-    expect(fs.lstat(`${FARM}/projects`)).toBeUndefined();
+    expect(fs.linkTarget(`${FARM}/projects`)).toBe(`${FAKE_CLAUDE_HOME}/projects`);
     expect(fs.lstat(`${FARM}/.credentials.json`)).toBeUndefined();
 
     const manifest = readFarmManifest(fs, FARM);
     expect(manifest?.identity).toBe("work");
-    expect(manifest?.links.map((link) => link.rel).sort()).toEqual(["settings.json", "skills"]);
+    expect(manifest?.links.map((link) => link.rel).sort()).toEqual(["projects", "settings.json", "skills"]);
     expect(manifest?.materialised).toEqual([]);
   });
 
@@ -245,7 +245,8 @@ describe("resyncFarm", () => {
 
   it("serialises against a concurrent resync of the same identity instead of racing it", () => {
     const fs = createFakeFarmFs(CANONICAL);
-    resyncFarm(params(fs));
+    // Starts with history explicitly closed, so the toggle to `history: true` below is a real, observable change rather than a no-op against the shared-by-default state.
+    resyncFarm(params(fs, { cascade: cascade({ categories: { history: false } }) }));
 
     // A sibling session holds the lock for the whole of its own resync.
     fs.mkdirp(IDENTITIES_DIR);

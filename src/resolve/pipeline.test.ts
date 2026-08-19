@@ -52,11 +52,11 @@ function decisionFor(state: ResolvedState, rel: string): Decision | undefined {
 }
 
 describe("shipped defaults with nothing configured", () => {
-  it("shares knowledge and settings, and nothing else", () => {
+  it("shares knowledge, settings, and history, leaving only runtime and secrets closed", () => {
     const state = resolve({ loadProfile: loader({}) });
     expect(shared(state, "skills")).toBe(true);
     expect(shared(state, "settings.json")).toBe(true);
-    expect(shared(state, "projects")).toBe(false);
+    expect(shared(state, "projects")).toBe(true);
     expect(shared(state, "shell-snapshots")).toBe(false);
     expect(shared(state, ".credentials.json")).toBe(false);
   });
@@ -362,7 +362,11 @@ describe("glob patterns against ~/.claude/projects/", () => {
       "todos/a.json": true,
     });
     const state = resolve(
-      { baseConfigProfile: "p", loadProfile: loader({ p: { entries: { "history/projects/~/work/clients/*": true } } }) },
+      {
+        baseConfigProfile: "p",
+        // history is closed at the category level so the specific glob below is what's actually under test, not the shipped default.
+        loadProfile: loader({ p: { categories: { history: false }, entries: { "history/projects/~/work/clients/*": true } } }),
+      },
       facts,
     );
     expect(shared(state, "projects/-home-testuser-work-clients-acme")).toBe(true);
@@ -456,7 +460,10 @@ describe("conditional entries end to end", () => {
   it("shares recent history and excludes stale history under one glob, with injected mtimes", () => {
     const state = resolve({
       baseConfigProfile: "p",
-      loadProfile: loader({ p: { entries: { "history/projects/~/work/clients/*": { value: true, when: { newerThan: "90d" } } } } }),
+      // history is closed at the category level so a stale, eliminated entry rule falls through to "not shared" rather than coincidentally landing on "shared" via the shipped default.
+      loadProfile: loader({
+        p: { categories: { history: false }, entries: { "history/projects/~/work/clients/*": { value: true, when: { newerThan: "90d" } } } },
+      }),
     });
     expect(shared(state, "projects/-home-testuser-work-clients-acme")).toBe(true);
     expect(shared(state, "projects/-home-testuser-work-clients-widget")).toBe(false);

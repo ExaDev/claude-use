@@ -200,7 +200,7 @@ describe("runConfigure", () => {
 
   describe("categories mode (no path)", () => {
     it("toggles a category and writes it into the identity's active configuration profile (tier 3)", async () => {
-      const { port, messages } = scriptedPrompts(["toggle", ["knowledge", "settings", "history"]]);
+      const { port, messages } = scriptedPrompts(["toggle", ["knowledge", "settings", "history", "runtime"]]);
       const { log, lines } = makeLog();
 
       await runConfigure(
@@ -209,13 +209,13 @@ describe("runConfigure", () => {
       );
 
       expect(messages).toEqual(["Configure identity \"testid\"", "Which categories should be shared?"]);
-      expect(readProfile(paths, "base")?.categories).toEqual({ history: true });
+      expect(readProfile(paths, "base")?.categories).toEqual({ runtime: true });
       expect(lines.some((line) => line.includes("Updated categories"))).toBe(true);
     });
 
     it("reports no changes when the selection matches the resolved state exactly", async () => {
-      const { port } = scriptedPrompts(["toggle", ["knowledge", "settings"]]);
-      const { log, lines } = makeLog();
+      const { port } = scriptedPrompts(["toggle", ["knowledge", "settings", "history"]]);
+      const { log, lines } = makeLog(); // knowledge, settings, and history are all shared by default; runtime is left unselected to match
 
       await runConfigure({ paths, prompts: port, log }, { identityName: "testid", cwd, home: homeRoot, claudeHome });
 
@@ -227,20 +227,20 @@ describe("runConfigure", () => {
       const rulePath = path.join(homeRoot, "work", "clients");
       addDirectoryRule(paths, rulePath, { configProfile: "base" });
 
-      const { port } = scriptedPrompts(["toggle", ["knowledge", "settings", "history"]]);
+      const { port } = scriptedPrompts(["toggle", ["knowledge", "settings", "history", "runtime"]]);
       const { log } = makeLog();
 
       await runConfigure({ paths, prompts: port, log }, { identityName: "testid", cwd, home: homeRoot, claudeHome });
 
       const rule = readDirectoryRules(paths).rules.find((entry) => entry.path === rulePath);
-      expect(rule?.categories).toEqual({ history: true });
+      expect(rule?.categories).toEqual({ runtime: true });
       expect(readProfile(paths, "base")?.categories).toBeUndefined();
     });
 
     it("writes into a committed directory's .claude-use.local.json instead of the profile, when one covers cwd (tier 1)", async () => {
       fs.writeFileSync(path.join(cwd, ".claude-use.json"), "{}\n");
 
-      const { port } = scriptedPrompts(["toggle", ["knowledge", "settings", "history"]]);
+      const { port } = scriptedPrompts(["toggle", ["knowledge", "settings", "history", "runtime"]]);
       const { log } = makeLog();
 
       await runConfigure({ paths, prompts: port, log }, { identityName: "testid", cwd, home: homeRoot, claudeHome });
@@ -248,7 +248,7 @@ describe("runConfigure", () => {
       const localPath = path.join(cwd, ".claude-use.local.json");
       expect(fs.existsSync(localPath)).toBe(true);
       const written: unknown = JSON.parse(fs.readFileSync(localPath, "utf8"));
-      expect(written).toMatchObject({ categories: { history: true } });
+      expect(written).toMatchObject({ categories: { runtime: true } });
       expect(readProfile(paths, "base")?.categories).toBeUndefined();
     });
 
@@ -257,12 +257,12 @@ describe("runConfigure", () => {
       // Even though a directory rule covers cwd (which would otherwise select tier 2), the explicit "edit a profile directly" branch always targets the profile the user picked, not chooseWriteTarget's result.
       addDirectoryRule(paths, path.join(homeRoot, "work", "clients"), { configProfile: "base" });
 
-      const { port } = scriptedPrompts(["profile", "other", ["knowledge", "history"]]);
+      const { port } = scriptedPrompts(["profile", "other", ["knowledge", "history", "runtime"]]);
       const { log } = makeLog();
 
       await runConfigure({ paths, prompts: port, log }, { identityName: "testid", cwd, home: homeRoot, claudeHome });
 
-      expect(readProfile(paths, "other")?.categories).toEqual({ history: true, settings: false });
+      expect(readProfile(paths, "other")?.categories).toEqual({ runtime: true, settings: false });
       expect(readProfile(paths, "base")?.categories).toBeUndefined();
     });
 
@@ -420,33 +420,33 @@ describe("runProfileWizard", () => {
   });
 
   it("creates a new profile when given a name via the text prompt, then sets the chosen categories", async () => {
-    const { port } = scriptedPrompts(["work", ["history"]]);
+    const { port } = scriptedPrompts(["work", ["runtime"]]);
 
     const result = await runProfileWizard(port, { paths });
 
     expect(result).toEqual({ name: "work", created: true });
-    expect(readProfile(paths, "work")?.categories?.history).toBe(true);
+    expect(readProfile(paths, "work")?.categories?.runtime).toBe(true);
     expect(readProfile(paths, "work")?.categories?.knowledge).toBe(false);
   });
 
   it("creates a profile with a fixed name (createName), skipping the name prompt", async () => {
-    const { port, messages } = scriptedPrompts([["history"]]);
+    const { port, messages } = scriptedPrompts([["runtime"]]);
 
     const result = await runProfileWizard(port, { paths, createName: "auto" });
 
     expect(result).toEqual({ name: "auto", created: true });
     expect(messages.some((m) => m.includes("Name for"))).toBe(false);
-    expect(readProfile(paths, "auto")?.categories?.history).toBe(true);
+    expect(readProfile(paths, "auto")?.categories?.runtime).toBe(true);
   });
 
   it("edits an existing profile's categories, seeded from its current values", async () => {
     createProfile(paths, "base");
-    const { port } = scriptedPrompts([["history"]]);
+    const { port } = scriptedPrompts([["runtime"]]);
 
     const result = await runProfileWizard(port, { paths, existingName: "base" });
 
     expect(result).toEqual({ name: "base", created: false });
-    expect(readProfile(paths, "base")?.categories?.history).toBe(true);
+    expect(readProfile(paths, "base")?.categories?.runtime).toBe(true);
     expect(readProfile(paths, "base")?.categories?.knowledge).toBe(false);
   });
 
@@ -476,8 +476,8 @@ describe("runProfileWizard", () => {
     const result = await runProfileWizard(port, { paths, existingName: "base" });
 
     expect(result).toEqual({ name: "base", created: false });
-    // Selecting nothing deselects knowledge and settings (shared by default), so only those two land in the file.
+    // Selecting nothing deselects knowledge, settings, and history (all shared by default), so only those three land in the file; runtime was already unshared, so it produces no diff.
     const categories = readProfile(paths, "base")?.categories;
-    expect(categories).toEqual({ knowledge: false, settings: false });
+    expect(categories).toEqual({ knowledge: false, settings: false, history: false });
   });
 });

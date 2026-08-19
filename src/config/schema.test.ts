@@ -255,11 +255,11 @@ describe("CategoryClassificationSchema", () => {
 });
 
 describe("SHIPPED_CATEGORY_DEFAULTS", () => {
-  it("shares only knowledge and settings out of the box", () => {
+  it("shares knowledge, settings, and history out of the box, leaving only runtime and secret closed", () => {
     expect(SHIPPED_CATEGORY_DEFAULTS).toEqual({
       secret: false,
       runtime: false,
-      history: false,
+      history: true,
       knowledge: true,
       settings: true,
     });

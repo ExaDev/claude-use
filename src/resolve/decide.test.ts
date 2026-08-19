@@ -146,7 +146,7 @@ describe("failing conditions", () => {
   });
 
   it("eliminates the more-specific rule and falls through to the next-most-specific matching rule, not to the category", () => {
-    // The stale project fails the 90d window on the specific rule; the broader rule (which has no condition) must then decide it — not the `history` category default, which would say false rather than true.
+    // The stale project fails the 90d window on the specific rule; the broader rule (which has no condition) must then decide it — confirmed via `result.decision.via` below, since a wrongful fall-through to the `history` category default wouldn't necessarily disagree with the correct answer by boolean value alone.
     const layers = [
       layer(0, {
         entries: {
@@ -166,13 +166,15 @@ describe("failing conditions", () => {
     const layers = [layer(0, { entries: { "history/projects/~/work/acme": { value: true, when: { newerThan: "90d" } } } })];
     const result = decide("projects/-home-testuser-work-acme", layers, facts);
     expect(result.decision.via).toBe("category-default");
-    expect(result.decision.shared).toBe(false);
+    expect(result.decision.shared).toBe(true);
   });
 
   it("applies the same rule where its condition does hold", () => {
     const layers = [layer(0, { entries: { "history/projects/~/work/*": { value: true, when: { newerThan: "90d" } } } })];
     expect(decide("projects/-home-testuser-work-fresh", layers, facts).decision.shared).toBe(true);
-    expect(decide("projects/-home-testuser-work-acme", layers, facts).decision.shared).toBe(false);
+    const eliminated = decide("projects/-home-testuser-work-acme", layers, facts);
+    expect(eliminated.decision.via).toBe("category-default");
+    expect(eliminated.decision.shared).toBe(true);
   });
 
   it("evaluates a branch condition against the injected branch, never a real repository", () => {

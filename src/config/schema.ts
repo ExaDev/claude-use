@@ -178,12 +178,12 @@ export const CategoryClassificationOverlaySchema = z.strictObject({
 export type CategoryClassificationOverlay = z.infer<typeof CategoryClassificationOverlaySchema>;
 
 /**
- * Whether a category is shared when no configuration layer says otherwise. This is the final fallback beneath every layer of the cascade, matching the README's category table: only `knowledge` and `settings` are shared out of the box, and `secret` can never be.
+ * Whether a category is shared when no configuration layer says otherwise. This is the final fallback beneath every layer of the cascade, matching the README's category table: every identity shares the same `knowledge`, `settings`, and `history` out of the box — only `runtime` (live per-process/machine state that cannot be meaningfully shared) stays closed by default, and `secret` can never be shared at all. Identities differ in credentials, not in the data they see.
  */
 export const SHIPPED_CATEGORY_DEFAULTS: Readonly<Record<CategoryName, boolean>> = Object.freeze({
   secret: false,
   runtime: false,
-  history: false,
+  history: true,
   knowledge: true,
   settings: true,
 });

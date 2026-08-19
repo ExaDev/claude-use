@@ -57,7 +57,7 @@ describe("runCheck", () => {
     expect(byPath.get("skills")?.shared).toBe(true);
     expect(byPath.get(".credentials.json")?.shared).toBe(false);
     expect(byPath.get(".credentials.json")?.via).toBe("secret-floor");
-    expect(byPath.get("projects")?.shared).toBe(false);
+    expect(byPath.get("projects")?.shared).toBe(true);
   });
 
   it("never touches the farm and never spawns anything — it only reads via the injected FarmFs", () => {
