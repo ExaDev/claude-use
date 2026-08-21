@@ -1,3 +1,9 @@
+## [2.0.1](https://github.com/ExaDev/claude-use/compare/v2.0.0...v2.0.1) (2026-08-21)
+
+### Bug Fixes
+
+* convert addIdentity's Zod validation failure into a CliError ([d03712a](https://github.com/ExaDev/claude-use/commit/d03712a04cf5f4ed3486f81c8ab6e765cf3a0b5b))
+
 ## [2.0.0](https://github.com/ExaDev/claude-use/compare/v1.5.0...v2.0.0) (2026-08-19)
 
 ### ⚠ BREAKING CHANGES
