@@ -27,6 +27,16 @@ export class IdentityAlreadyExistsError extends CliError {
   }
 }
 
+/** Raised by `addIdentity` when `name` fails `IdentitySchema`'s own naming rule — it must start with a letter or number and contain only letters, numbers, dots, hyphens, and underscores (this excludes `@`, so an email address is not a valid identity name on its own). */
+export class InvalidIdentityNameError extends CliError {
+  constructor(readonly attemptedName: string) {
+    super(
+      `"${attemptedName}" is not a valid identity name — identity names must start with a letter or number and may only contain letters, numbers, dots, hyphens, and underscores.`,
+    );
+    this.name = "InvalidIdentityNameError";
+  }
+}
+
 function identityJsonPath(paths: LayoutPaths, name: string): string {
   return path.join(paths.identitiesDir, name, "identity.json");
 }
@@ -43,15 +53,18 @@ export function readIdentity(paths: LayoutPaths, name: string): Identity | undef
 /**
  * Creates a new identity: validates `name` against `IdentitySchema`'s own naming rule and writes a fresh `identity.json` with `allowAmbientCredential: false` and no `defaultConfigProfile`.
  *
- * Throws `IdentityAlreadyExistsError` if an identity with this name already has an `identity.json` — `add` never silently overwrites an existing identity.
+ * Throws `IdentityAlreadyExistsError` if an identity with this name already has an `identity.json` — `add` never silently overwrites an existing identity. Throws `InvalidIdentityNameError` when `name` fails `IdentitySchema`'s naming rule, rather than letting the underlying `ZodError` escape as an unhandled crash.
  */
 export function addIdentity(paths: LayoutPaths, name: string): Identity {
   if (identityExists(paths, name)) {
     throw new IdentityAlreadyExistsError(name);
   }
-  const identity = IdentitySchema.parse({ name, allowAmbientCredential: false });
-  writeJsonAtomic(identityJsonPath(paths, name), identity);
-  return identity;
+  const parsed = IdentitySchema.safeParse({ name, allowAmbientCredential: false });
+  if (!parsed.success) {
+    throw new InvalidIdentityNameError(name);
+  }
+  writeJsonAtomic(identityJsonPath(paths, name), parsed.data);
+  return parsed.data;
 }
 
 /**

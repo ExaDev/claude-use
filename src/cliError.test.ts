@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CliError } from "./cliError";
-import { IdentityAlreadyExistsError, IdentityNotFoundError } from "./identityManager";
+import { IdentityAlreadyExistsError, IdentityNotFoundError, InvalidIdentityNameError } from "./identityManager";
 import { InvalidCategoryNameError, ProfileAlreadyExistsError, ProfileNotFoundError } from "./configProfiles";
 import { DirectoryRuleNotFoundError } from "./directoryRules";
 import { ForeignClaudeEntryError, UnsupportedShimSourceError } from "./claudeShim";
@@ -18,6 +18,7 @@ describe("every CLI-facing error class extends CliError", () => {
   it.each<[string, () => Error]>([
     ["IdentityNotFoundError", () => new IdentityNotFoundError("work")],
     ["IdentityAlreadyExistsError", () => new IdentityAlreadyExistsError("work")],
+    ["InvalidIdentityNameError", () => new InvalidIdentityNameError("bad@name")],
     ["ProfileNotFoundError", () => new ProfileNotFoundError("client-acme")],
     ["ProfileAlreadyExistsError", () => new ProfileAlreadyExistsError("client-acme")],
     ["InvalidCategoryNameError", () => new InvalidCategoryNameError("secret")],

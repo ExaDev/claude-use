@@ -8,6 +8,7 @@ import type { MultiselectParams, PromptsPort, SelectParams } from "./configure";
 import {
   IdentityAlreadyExistsError,
   IdentityNotFoundError,
+  InvalidIdentityNameError,
   addIdentity,
   listIdentities,
   readActiveIdentity,
@@ -85,8 +86,12 @@ describe("identityManager", () => {
       expect(() => addIdentity(paths, "work")).toThrow(IdentityAlreadyExistsError);
     });
 
-    it("rejects an invalid identity name via IdentitySchema's own regex", () => {
-      expect(() => addIdentity(paths, "-bad-start")).toThrow();
+    it("throws InvalidIdentityNameError, not a raw ZodError, for a name that fails IdentitySchema's own naming rule", () => {
+      expect(() => addIdentity(paths, "-bad-start")).toThrow(InvalidIdentityNameError);
+    });
+
+    it("throws InvalidIdentityNameError for an email-shaped name (the `@` shortcut's own name portion can be anything, including an email address)", () => {
+      expect(() => addIdentity(paths, "joseph.mearman@exadev.io")).toThrow(InvalidIdentityNameError);
     });
   });
 
@@ -185,6 +190,13 @@ describe("identityManager", () => {
       expect(result).toBe(false);
       expect(readIdentity(paths, "ghost")).toBeUndefined();
       expect(readActiveIdentity(paths)).toBeUndefined();
+    });
+
+    it("throws InvalidIdentityNameError, not a raw ZodError, when the confirmed name fails IdentitySchema's own naming rule", async () => {
+      const prompts = scriptedIdentityPrompts(["create"]);
+      await expect(runIdentityWizard(prompts, paths, "joseph.mearman@exadev.io")).rejects.toThrow(
+        InvalidIdentityNameError,
+      );
     });
   });
 
