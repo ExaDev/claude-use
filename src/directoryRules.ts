@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 
 import { readJson, writeJsonAtomic } from "./config/store";
+import { ConfigValidationError } from "./config/load";
 import { DirectoryRulesSchema, type DirectoryRule, type DirectoryRules } from "./config/schema";
 import { CliError } from "./cliError";
 import { realPromptsPort, runProfileWizard } from "./configure";
@@ -15,15 +16,26 @@ export class DirectoryRuleNotFoundError extends CliError {
   }
 }
 
+/** Raised by `addDirectoryRule` when neither `--profile` nor `--identity` is given — a rule that pins neither would do nothing. */
+export class DirectoryRuleMissingTargetError extends CliError {
+  constructor() {
+    super("A directory rule must set at least one of --profile or --identity.");
+    this.name = "DirectoryRuleMissingTargetError";
+  }
+}
+
 /** Reads `~/.claude-use/directory-rules.json`, or an empty rule set when the file does not exist yet. */
 export function readDirectoryRules(paths: LayoutPaths): DirectoryRules {
   return readJson(paths.directoryRulesFile, DirectoryRulesSchema) ?? { rules: [] };
 }
 
-/** Validates and writes the whole `~/.claude-use/directory-rules.json` file. Exported so `src/configure.ts` can update a single rule's `categories`/`entries` in place without duplicating this validate-then-write step. */
+/** Validates and writes the whole `~/.claude-use/directory-rules.json` file. Exported so `src/configure.ts` can update a single rule's `categories`/`entries` in place without duplicating this validate-then-write step. Throws `ConfigValidationError` when `rules` fails `DirectoryRulesSchema`, rather than letting the underlying `ZodError` escape as an unhandled crash. */
 export function writeDirectoryRules(paths: LayoutPaths, rules: DirectoryRules): void {
-  const validated = DirectoryRulesSchema.parse(rules);
-  writeJsonAtomic(paths.directoryRulesFile, validated);
+  const parsed = DirectoryRulesSchema.safeParse(rules);
+  if (!parsed.success) {
+    throw new ConfigValidationError(paths.directoryRulesFile, parsed.error.issues);
+  }
+  writeJsonAtomic(paths.directoryRulesFile, parsed.data);
 }
 
 /** Lists every directory rule, in file order. */
@@ -44,7 +56,7 @@ export interface AddDirectoryRuleOptions {
  */
 export function addDirectoryRule(paths: LayoutPaths, rulePath: string, options: AddDirectoryRuleOptions): DirectoryRule {
   if (options.configProfile === undefined && options.identity === undefined) {
-    throw new Error("A directory rule must set at least one of --profile or --identity.");
+    throw new DirectoryRuleMissingTargetError();
   }
   const current = readDirectoryRules(paths);
   const existingIndex = current.rules.findIndex((rule) => rule.path === rulePath);

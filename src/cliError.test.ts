@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { CliError } from "./cliError";
 import { IdentityAlreadyExistsError, IdentityNotFoundError, InvalidIdentityNameError } from "./identityManager";
 import { InvalidCategoryNameError, ProfileAlreadyExistsError, ProfileNotFoundError } from "./configProfiles";
-import { DirectoryRuleNotFoundError } from "./directoryRules";
+import { DirectoryRuleMissingTargetError, DirectoryRuleNotFoundError } from "./directoryRules";
 import { ForeignClaudeEntryError, UnsupportedShimSourceError } from "./claudeShim";
 import { ConfigValidationError } from "./config/load";
 import { InvalidCliCategoryError, InvalidCliEntryKeyError } from "./launcher/cliOverride";
@@ -23,6 +23,7 @@ describe("every CLI-facing error class extends CliError", () => {
     ["ProfileAlreadyExistsError", () => new ProfileAlreadyExistsError("client-acme")],
     ["InvalidCategoryNameError", () => new InvalidCategoryNameError("secret")],
     ["DirectoryRuleNotFoundError", () => new DirectoryRuleNotFoundError("/some/path")],
+    ["DirectoryRuleMissingTargetError", () => new DirectoryRuleMissingTargetError()],
     ["ForeignClaudeEntryError", () => new ForeignClaudeEntryError("/usr/local/bin/claude", "enable")],
     ["UnsupportedShimSourceError", () => new UnsupportedShimSourceError("/some/source")],
     ["ConfigValidationError", () => new ConfigValidationError("/some/config.json", [])],

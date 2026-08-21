@@ -4,12 +4,15 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { buildLayoutPaths, type LayoutPaths } from "./paths";
+import { ConfigValidationError } from "./config/load";
 import {
+  DirectoryRuleMissingTargetError,
   DirectoryRuleNotFoundError,
   addDirectoryRule,
   listDirectoryRules,
   readDirectoryRules,
   removeDirectoryRule,
+  writeDirectoryRules,
 } from "./directoryRules";
 
 describe("directoryRules", () => {
@@ -55,8 +58,12 @@ describe("directoryRules", () => {
       });
     });
 
-    it("throws when neither --profile nor --identity is given", () => {
-      expect(() => addDirectoryRule(paths, "~/work", {})).toThrow(/at least one/);
+    it("throws DirectoryRuleMissingTargetError when neither --profile nor --identity is given", () => {
+      expect(() => addDirectoryRule(paths, "~/work", {})).toThrow(DirectoryRuleMissingTargetError);
+    });
+
+    it("throws ConfigValidationError, not a raw ZodError, for a rule set that fails DirectoryRulesSchema", () => {
+      expect(() => writeDirectoryRules(paths, { rules: [{ path: "" }] })).toThrow(ConfigValidationError);
     });
 
     it("appends a second rule for a different path", () => {
