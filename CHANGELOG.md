@@ -1,3 +1,10 @@
+## [2.0.2](https://github.com/ExaDev/claude-use/compare/v2.0.1...v2.0.2) (2026-08-21)
+
+### Bug Fixes
+
+* convert createProfile's raw ZodError throw into ConfigValidationError ([423eddf](https://github.com/ExaDev/claude-use/commit/423eddfa17d41b0f94c0283fc2ddf713882ea302))
+* convert directoryRules' raw parse/Error throws into CliError subclasses ([74cfe16](https://github.com/ExaDev/claude-use/commit/74cfe160d861eab7fa2293eff990b3db5384e24f))
+
 ## [2.0.1](https://github.com/ExaDev/claude-use/compare/v2.0.0...v2.0.1) (2026-08-21)
 
 ### Bug Fixes
