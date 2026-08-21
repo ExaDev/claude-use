@@ -16,6 +16,7 @@ import {
 } from "./config/schema";
 import { collectBoolPairs } from "./cli/parsers";
 import { CliError } from "./cliError";
+import { ConfigValidationError } from "./config/load";
 import { realPromptsPort, runProfileWizard } from "./configure";
 import type { LayoutPaths } from "./paths";
 
@@ -64,17 +65,21 @@ export function readProfile(paths: LayoutPaths, name: string): ConfigProfile | u
 }
 
 /**
- * Creates a new, empty configuration profile (optionally extending others). Throws `ProfileAlreadyExistsError` if a profile with this name already has a file.
+ * Creates a new, empty configuration profile (optionally extending others). Throws `ProfileAlreadyExistsError` if a profile with this name already has a file, and `ConfigValidationError` when `extendsList` fails `ConfigProfileSchema` (e.g. contains an empty name from a stray `,,` in `--extends`), rather than letting the underlying `ZodError` escape as an unhandled crash.
  */
 export function createProfile(paths: LayoutPaths, name: string, extendsList?: readonly string[]): ConfigProfile {
   if (profileExists(paths, name)) {
     throw new ProfileAlreadyExistsError(name);
   }
-  const profile = ConfigProfileSchema.parse(
+  const filePath = profileJsonPath(paths, name);
+  const parsed = ConfigProfileSchema.safeParse(
     extendsList !== undefined && extendsList.length > 0 ? { extends: [...extendsList] } : {},
   );
-  writeJsonAtomic(profileJsonPath(paths, name), profile);
-  return profile;
+  if (!parsed.success) {
+    throw new ConfigValidationError(filePath, parsed.error.issues);
+  }
+  writeJsonAtomic(filePath, parsed.data);
+  return parsed.data;
 }
 
 /** One profile as reported by `listProfiles`. */

@@ -49,6 +49,10 @@ describe("configProfiles", () => {
       createProfile(paths, "base");
       expect(() => createProfile(paths, "base")).toThrow(ProfileAlreadyExistsError);
     });
+
+    it("throws ConfigValidationError, not a raw ZodError, for an extends list containing an empty name (e.g. from a stray `,,` in --extends)", () => {
+      expect(() => createProfile(paths, "work", ["base", "", "other"])).toThrow(ConfigValidationError);
+    });
   });
 
   describe("readProfile", () => {
