@@ -147,7 +147,8 @@ export const IdentitySchema = z.strictObject({
   name: z
     .string()
     .min(1)
-    .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/),
+    // `@` is allowed in the body so an email address names its own identity directly (joseph.mearman@exadev.io), but the first character stays strictly alphanumeric: a leading `@` would collide with the `@name` selector syntax's first-`@` split and make an unconventional directory name under identities/.
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._@-]*$/),
   defaultConfigProfile: z.string().min(1).optional(),
   allowAmbientCredential: z.boolean().default(false),
 });

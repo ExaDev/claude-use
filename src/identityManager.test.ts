@@ -90,8 +90,14 @@ describe("identityManager", () => {
       expect(() => addIdentity(paths, "-bad-start")).toThrow(InvalidIdentityNameError);
     });
 
-    it("throws InvalidIdentityNameError for an email-shaped name (the `@` shortcut's own name portion can be anything, including an email address)", () => {
-      expect(() => addIdentity(paths, "joseph.mearman@exadev.io")).toThrow(InvalidIdentityNameError);
+    it("creates an identity for an email-shaped name — `@` is valid in the body, so the `@name` shortcut's first-`@` split lands here intact", () => {
+      const identity = addIdentity(paths, "joseph.mearman@exadev.io");
+      expect(identity.name).toBe("joseph.mearman@exadev.io");
+      expect(readIdentity(paths, "joseph.mearman@exadev.io")?.name).toBe("joseph.mearman@exadev.io");
+    });
+
+    it("throws InvalidIdentityNameError for a leading `@` — the first character stays strictly alphanumeric so the `@name` selector syntax's first-`@` split stays unambiguous", () => {
+      expect(() => addIdentity(paths, "@exadev")).toThrow(InvalidIdentityNameError);
     });
   });
 
@@ -131,6 +137,12 @@ describe("identityManager", () => {
       addIdentity(paths, "exadev");
       expect(await tryRunAtIdentityShortcut(paths, ["@exadev"])).toBe(true);
       expect(readActiveIdentity(paths)).toBe("exadev");
+    });
+
+    it("splits an @<name> token at the first `@` only, so an email-shaped identity name survives intact", async () => {
+      addIdentity(paths, "joseph.mearman@exadev.io");
+      expect(await tryRunAtIdentityShortcut(paths, ["@joseph.mearman@exadev.io"])).toBe(true);
+      expect(readActiveIdentity(paths)).toBe("joseph.mearman@exadev.io");
     });
 
     it("propagates IdentityNotFoundError for an unknown @<name> in a non-interactive context", async () => {
@@ -194,9 +206,16 @@ describe("identityManager", () => {
 
     it("throws InvalidIdentityNameError before any prompt appears, not a raw ZodError after the user confirms, when the name fails IdentitySchema's own naming rule", async () => {
       const prompts = scriptedIdentityPrompts([]);
-      await expect(runIdentityWizard(prompts, paths, "joseph.mearman@exadev.io")).rejects.toThrow(
-        InvalidIdentityNameError,
-      );
+      await expect(runIdentityWizard(prompts, paths, "@exadev")).rejects.toThrow(InvalidIdentityNameError);
+    });
+
+    it("offers the wizard for an email-shaped name, whose `@` is valid in the body", async () => {
+      const prompts = scriptedIdentityPrompts(["create", "skip"]);
+      const result = await runIdentityWizard(prompts, paths, "joseph.mearman@exadev.io");
+
+      expect(result).toBe(true);
+      expect(readIdentity(paths, "joseph.mearman@exadev.io")).toBeDefined();
+      expect(readActiveIdentity(paths)).toBe("joseph.mearman@exadev.io");
     });
   });
 

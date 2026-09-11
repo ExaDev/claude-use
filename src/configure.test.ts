@@ -397,6 +397,14 @@ describe("validateProfileName", () => {
     expect(validateProfileName("client-acme")).toBeUndefined();
   });
 
+  it("accepts an at sign in the body, matching the identity-name shape the wizard defaults to for a new identity", () => {
+    expect(validateProfileName("joseph.mearman@exadev.io")).toBeUndefined();
+  });
+
+  it("rejects a name starting with an at sign", () => {
+    expect(validateProfileName("@exadev")).toContain("must start with a letter or digit");
+  });
+
   it("rejects a duplicate when existingNames is given", () => {
     expect(validateProfileName("base", ["base", "other"])).toContain("already exists");
   });
