@@ -1,3 +1,9 @@
+## [2.0.4](https://github.com/ExaDev/claude-use/compare/v2.0.3...v2.0.4) (2026-09-11)
+
+### Bug Fixes
+
+* reject an invalid identity name before offering the creation wizard ([91442d0](https://github.com/ExaDev/claude-use/commit/91442d04b02f2dfe00eb2a39e5244ef29659ff95))
+
 ## [2.0.3](https://github.com/ExaDev/claude-use/compare/v2.0.2...v2.0.3) (2026-09-11)
 
 ### Bug Fixes
