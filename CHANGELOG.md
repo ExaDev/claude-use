@@ -1,3 +1,9 @@
+## [2.0.3](https://github.com/ExaDev/claude-use/compare/v2.0.2...v2.0.3) (2026-09-11)
+
+### Bug Fixes
+
+* refresh dependencies to clear the five high and two moderate audit advisories ([219e0a3](https://github.com/ExaDev/claude-use/commit/219e0a3d4fdb5ddb3fa58fa7c0d1c9de8da2b792))
+
 ## [2.0.2](https://github.com/ExaDev/claude-use/compare/v2.0.1...v2.0.2) (2026-08-21)
 
 ### Bug Fixes
