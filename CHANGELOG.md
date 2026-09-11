@@ -1,3 +1,9 @@
+## [2.1.0](https://github.com/ExaDev/claude-use/compare/v2.0.4...v2.1.0) (2026-09-11)
+
+### Features
+
+* allow @ in the body of identity and profile names ([838b99c](https://github.com/ExaDev/claude-use/commit/838b99c79fd5614fcd8149cd9c23f39e453c64d4))
+
 ## [2.0.4](https://github.com/ExaDev/claude-use/compare/v2.0.3...v2.0.4) (2026-09-11)
 
 ### Bug Fixes
