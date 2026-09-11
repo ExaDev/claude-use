@@ -192,8 +192,8 @@ describe("identityManager", () => {
       expect(readActiveIdentity(paths)).toBeUndefined();
     });
 
-    it("throws InvalidIdentityNameError, not a raw ZodError, when the confirmed name fails IdentitySchema's own naming rule", async () => {
-      const prompts = scriptedIdentityPrompts(["create"]);
+    it("throws InvalidIdentityNameError before any prompt appears, not a raw ZodError after the user confirms, when the name fails IdentitySchema's own naming rule", async () => {
+      const prompts = scriptedIdentityPrompts([]);
       await expect(runIdentityWizard(prompts, paths, "joseph.mearman@exadev.io")).rejects.toThrow(
         InvalidIdentityNameError,
       );
