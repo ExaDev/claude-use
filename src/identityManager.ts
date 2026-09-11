@@ -27,11 +27,11 @@ export class IdentityAlreadyExistsError extends CliError {
   }
 }
 
-/** Raised by `addIdentity` when `name` fails `IdentitySchema`'s own naming rule — it must start with a letter or number and contain only letters, numbers, dots, hyphens, and underscores (this excludes `@`, so an email address is not a valid identity name on its own). */
+/** Raised by `addIdentity` when `name` fails `IdentitySchema`'s own naming rule — it must start with a letter or number and may then contain letters, numbers, dots, hyphens, underscores, and at signs, so an email address names an identity directly while a *leading* `@` stays invalid (it would collide with the `@name` selector syntax's first-`@` split). */
 export class InvalidIdentityNameError extends CliError {
   constructor(readonly attemptedName: string) {
     super(
-      `"${attemptedName}" is not a valid identity name — identity names must start with a letter or number and may only contain letters, numbers, dots, hyphens, and underscores.`,
+      `"${attemptedName}" is not a valid identity name — identity names must start with a letter or number and may then contain letters, numbers, dots, hyphens, underscores, and at signs.`,
     );
     this.name = "InvalidIdentityNameError";
   }
@@ -82,7 +82,7 @@ export function useIdentity(paths: LayoutPaths, name: string): void {
 /**
  * The interactive setup wizard for a new identity, offered by the `@<name>` shortcut and `identity use` when the identity doesn't exist yet and stdin is a real terminal.
  *
- * Validates `name` against `IdentitySchema`'s own naming rule before any prompt appears — offering "Create it now?" for a name that could never validate (an email address, say, whose `@` the shortcut passes through verbatim) just to fail on confirm is a broken interaction, so an invalid name throws `InvalidIdentityNameError` immediately instead.
+ * Validates `name` against `IdentitySchema`'s own naming rule before any prompt appears — offering "Create it now?" for a name that could never validate (one with a leading `@`, say, or any other character the schema rejects) just to fail on confirm is a broken interaction, so an invalid name throws `InvalidIdentityNameError` immediately instead.
  *
  * Confirms the user wants to create the identity, then optionally creates a default configuration profile (reusing `runProfileWizard`), links them, and sets the identity as active. A cancel at any step writes nothing beyond what was already committed — the identity is only created after the first confirm, and the profile wizard's own cancel handling means a profile-only cancellation still leaves the identity usable. Returns `true` when the identity was created and set active; `false` when the user declined at the initial confirm.
  *

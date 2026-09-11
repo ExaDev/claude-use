@@ -460,8 +460,8 @@ const CATEGORY_LABELS: Record<"secret" | OverridableCategory, string> = {
 /* runProfileWizard: the unified create-or-edit flow.                                                  */
 /* -------------------------------------------------------------------------------------------------- */
 
-/** A profile name must match the same shape as an identity name (`IdentitySchema`): start alphanumeric, then alphanumerics/dots/dashes/underscores. */
-const PROFILE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/** A profile name must match the same shape as an identity name (`IdentitySchema`): start alphanumeric, then alphanumerics/dots/dashes/underscores/at signs. The `@` allowance moves in lockstep with the identity schema because `runIdentityWizard` offers the identity's own name as the default profile name — an email-shaped identity would otherwise suggest a profile name its own validator rejects. */
+const PROFILE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._@-]*$/;
 
 /** Validates a candidate profile name for the wizard's text prompt: non-empty, matches the allowed shape, and (only when `existingNames` is given) not already taken. */
 export function validateProfileName(value: string, existingNames?: readonly string[]): string | undefined {
@@ -469,7 +469,7 @@ export function validateProfileName(value: string, existingNames?: readonly stri
     return "A name is required.";
   }
   if (!PROFILE_NAME_RE.test(value)) {
-    return "Names must start with a letter or digit, and contain only letters, digits, dots, dashes, and underscores.";
+    return "Names must start with a letter or digit, and contain only letters, digits, dots, dashes, underscores, and at signs.";
   }
   if (existingNames?.includes(value)) {
     return `A configuration profile named "${value}" already exists.`;
