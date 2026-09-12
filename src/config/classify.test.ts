@@ -1,8 +1,12 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import categoriesDefaultJson from "./categories.default.json";
-import { classifyEntries, compileClassificationPatterns, isExactPattern } from "./classify";
+import { classifyEntries, compileClassificationPatterns, isExactPattern, loadClassification } from "./classify";
 import { CategoryClassificationSchema } from "./schema";
+import { buildLayoutPaths, type LayoutPaths } from "../paths";
 
 const defaults = CategoryClassificationSchema.parse(categoriesDefaultJson);
 
@@ -94,5 +98,34 @@ describe("compileClassificationPatterns", () => {
     const ordinals = compiled.map((pattern) => pattern.ordinal);
     expect(new Set(ordinals).size).toBe(ordinals.length);
     expect(compiled.some((pattern) => pattern.pattern === "extra" && pattern.source === "local")).toBe(true);
+  });
+});
+
+describe("loadClassification", () => {
+  let root: string;
+  let paths: LayoutPaths;
+
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), "classify-test-"));
+    paths = buildLayoutPaths(root);
+  });
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("returns the shipped defaults with no overlay when categories.local.json does not exist", () => {
+    const loaded = loadClassification(paths);
+    expect(loaded.defaults).toEqual(defaults);
+    expect(loaded.overlay).toBeUndefined();
+  });
+
+  it("includes the local overlay once one has been written", () => {
+    fs.mkdirSync(path.dirname(paths.categoriesLocalFile), { recursive: true });
+    fs.writeFileSync(paths.categoriesLocalFile, JSON.stringify({ knowledge: ["a-user-answered-this"] }), "utf8");
+
+    const loaded = loadClassification(paths);
+    expect(loaded.overlay).toEqual({ knowledge: ["a-user-answered-this"] });
+    expect(classifyEntries(["a-user-answered-this"], loaded).classification.get("a-user-answered-this")).toBe("knowledge");
   });
 });

@@ -1,11 +1,16 @@
 import picomatch from "picomatch";
 
+import categoriesDefaultJson from "./categories.default.json";
 import {
   CATEGORY_NAMES,
+  CategoryClassificationOverlaySchema,
+  CategoryClassificationSchema,
   type CategoryClassification,
   type CategoryClassificationOverlay,
   type CategoryName,
 } from "./schema";
+import { readJson } from "./store";
+import type { LayoutPaths } from "../paths";
 
 /** Which map a classification pattern came from. A `local` pattern is an answer the user gave to an "unclassified entry" prompt; a `default` pattern is shipped with the tool. */
 type ClassificationSource = "default" | "local";
@@ -96,6 +101,26 @@ function compareClassificationPatterns(a: ClassificationPattern, b: Classificati
     return a.pattern.length - b.pattern.length;
   }
   return a.ordinal - b.ordinal;
+}
+
+
+/** The classification input every real call site needs: the shipped defaults plus this user's own local overlay, when one exists. */
+export interface LoadedClassification {
+  readonly defaults: CategoryClassification;
+  readonly overlay?: CategoryClassificationOverlay;
+}
+
+/**
+ * Loads the classification input `classifyEntries` needs — the shipped `categories.default.json`, plus `categories.local.json` when the user has answered at least one "unclassified entry" prompt.
+ *
+ * Real-wired convenience over reading and validating the two files. Every command that classifies anything (`cli.ts`'s farm runtime, `check`, `configure`, `identity resolve`) was independently repeating this exact pair of `readJson`/`.parse()` calls before this existed; centralising it here means the four command files stay thin call sites rather than each holding its own copy of a validation step that never varies between them.
+ */
+export function loadClassification(paths: LayoutPaths): LoadedClassification {
+  const overlay = readJson(paths.categoriesLocalFile, CategoryClassificationOverlaySchema);
+  return {
+    defaults: CategoryClassificationSchema.parse(categoriesDefaultJson),
+    ...(overlay === undefined ? {} : { overlay }),
+  };
 }
 
 /**

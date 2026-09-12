@@ -4,11 +4,9 @@ import path from "node:path";
 import type { Command } from "commander";
 import * as clack from "@clack/prompts";
 
-import categoriesDefaultJson from "./config/categories.default.json";
+import { loadClassification } from "./config/classify";
 import { cosmiconfigReader } from "./config/load";
 import {
-  CategoryClassificationOverlaySchema,
-  CategoryClassificationSchema,
   OVERRIDABLE_CATEGORIES,
   PortableConfigSchema,
   SHIPPED_CATEGORY_DEFAULTS,
@@ -362,11 +360,7 @@ function buildConfigureContext(deps: RunConfigureDeps, params: RunConfigureParam
   }
 
   const read = cosmiconfigReader();
-  const overlay = readJson(deps.paths.categoriesLocalFile, CategoryClassificationOverlaySchema);
-  const classification = {
-    defaults: CategoryClassificationSchema.parse(categoriesDefaultJson),
-    ...(overlay === undefined ? {} : { overlay }),
-  };
+  const classification = loadClassification(deps.paths);
 
   const globalConfig = readGlobalConfig(deps.paths);
   const preliminary = loadCascadeInput({ paths: deps.paths, home: params.home, cwd: params.cwd, read });

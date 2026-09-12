@@ -3,17 +3,14 @@ import path from "node:path";
 import type { Command } from "commander";
 import { z } from "zod";
 
-import categoriesDefaultJson from "./config/categories.default.json";
+import { loadClassification } from "./config/classify";
 import { cosmiconfigReader } from "./config/load";
 import {
-  CategoryClassificationOverlaySchema,
-  CategoryClassificationSchema,
   SHIPPED_CATEGORY_DEFAULTS,
   type CategoryClassification,
   type CategoryClassificationOverlay,
   type Identity,
 } from "./config/schema";
-import { readJson } from "./config/store";
 import { loadCascadeInput, readDirectorySelections } from "./launcher/cascade";
 import { buildEntryFacts } from "./launcher/farm";
 import { AMBIENT_CREDENTIAL_VARS, evaluateAmbientCredentialGuard, type AmbientCredentialGuardResult } from "./launcher/guard";
@@ -406,11 +403,7 @@ export function registerCheckCommand(program: Command, paths: LayoutPaths): void
       const claudeHome = resolveClaudeHome();
       const read = cosmiconfigReader();
 
-      const overlay = readJson(paths.categoriesLocalFile, CategoryClassificationOverlaySchema);
-      const classification = {
-        defaults: CategoryClassificationSchema.parse(categoriesDefaultJson),
-        ...(overlay === undefined ? {} : { overlay }),
-      };
+      const classification = loadClassification(paths);
 
       const loaded = loadCascadeInput({ paths, home, cwd, read });
       const selections = readDirectorySelections(loaded);
