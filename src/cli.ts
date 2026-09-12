@@ -3,11 +3,9 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { Command } from "commander";
 
-import categoriesDefaultJson from "./config/categories.default.json";
 import packageJson from "../package.json";
+import { loadClassification } from "./config/classify";
 import { cosmiconfigReader } from "./config/load";
-import { CategoryClassificationOverlaySchema, CategoryClassificationSchema } from "./config/schema";
-import { readJson } from "./config/store";
 import { registerCheckCommand } from "./check";
 import { CliError } from "./cliError";
 import { realPromptsPort, registerConfigureCommand, runProfileWizard } from "./configure";
@@ -86,11 +84,7 @@ function buildFarmRuntime(paths: LayoutPaths): {
   const home = os.homedir();
   const cwd = process.cwd();
   const read = cosmiconfigReader();
-  const overlay = readJson(paths.categoriesLocalFile, CategoryClassificationOverlaySchema);
-  const classification = {
-    defaults: CategoryClassificationSchema.parse(categoriesDefaultJson),
-    ...(overlay === undefined ? {} : { overlay }),
-  };
+  const classification = loadClassification(paths);
   const loaded = loadCascadeInput({ paths, home, cwd, read });
   const selections = readDirectorySelections(loaded);
   const git = resolveGitBranch(realRunPort, cwd);
