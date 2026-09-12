@@ -630,8 +630,8 @@ jobs:
           fetch_sha claude-use-linux-x64 sha-linux-x64
           fetch_sha claude-use-linux-arm64 sha-linux-arm64
 
-          # macOS x64's SEA binary segfaults on every invocation (a known, unfixed upstream Node bug -- see README.md's "Build (Node SEA)" section) so the formula installs via npm + a Homebrew-managed Node instead for that one architecture, same as this project's own npm channel. The npm registry has no published sidecar checksum, so this hashes the downloaded tarball itself -- and can take longer than GitHub's release CDN to start serving a version right after npm publish returns success, matching verify-npm's own retry budget for the identical propagation-delay reason.
-          curl -sL --fail --retry 12 --retry-delay 8 --retry-all-errors \
+          # macOS x64's SEA binary segfaults on every invocation (a known, unfixed upstream Node bug -- see README.md's "Build (Node SEA)" section) so the formula installs via npm + a Homebrew-managed Node instead for that one architecture, same as this project's own npm channel. The npm registry has no published sidecar checksum, so this hashes the downloaded tarball itself. The retry budget here is wide (40 attempts, ~10 minutes) rather than matched to GitHub's own release CDN above: npm's package metadata and its tarball blob storage are separate backing stores, and the metadata can resolve a version -- `npm view`, a bare `npm install` -- well before the tarball itself is downloadable. Confirmed directly, not theoretical: this exact gap outlasted a 96-second budget once already, on a publish where the registry's own status page reported no incident and an unrelated, long-published package's tarball resolved instantly throughout.
+          curl -sL --fail --retry 40 --retry-delay 15 --retry-all-errors \
             -o npm-package.tgz "https://registry.npmjs.org/claude-use/-/claude-use-${VERSION}.tgz"
           shasum -a 256 npm-package.tgz | awk '{print $1}' > sha-npm-tarball
           if ! [[ "$(cat sha-npm-tarball)" =~ ^[0-9a-f]{64}$ ]]; then
@@ -1035,15 +1035,15 @@ jobs:
         shell: bash
         run: |
           expected="${RELEASE_TAG#v}"
-          # The registry can take a few moments to serve a version right after `npm publish` returns success, so retry rather than trusting the first attempt.
+          # npm's package metadata and its tarball blob storage are separate backing stores, and the metadata can resolve a version well before the tarball itself is downloadable -- confirmed directly, not theoretical: this gap has outlasted a much narrower budget here before, on a publish the registry's own status page reported no incident for. Retry generously (60 attempts, ~10 minutes) rather than trusting the first attempt.
           #
           # Uses `-p ... claude-use` (the explicit command form) rather than the bare `npx claude-use@version` form: empirically, npm 11.17's bare-invocation heuristic for a multi-bin package picks the wrong bin (`claude`, not `claude-use`) even though npm's own documented rule says it should match the bin named after the package. The explicit form isn't ambiguous in the first place, so it isn't exposed to that bug.
           installed=""
-          for i in $(seq 1 10); do
+          for i in $(seq 1 60); do
             if installed=$(npx --yes -p "claude-use@${expected}" claude-use --version 2>/dev/null); then
               break
             fi
-            echo "npm registry not ready yet, retrying in 10s... ($i/10)"
+            echo "npm registry not ready yet, retrying in 10s... ($i/60)"
             sleep 10
           done
           echo "$installed"
