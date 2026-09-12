@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createFakeFarmFs, FAKE_HOME } from "../test-helpers";
+import { createFakeFarmFs, FAKE_HOME, shippedClassification } from "../test-helpers";
 import { resolveFarmConflicts, type FarmConflict, type FarmConflictChoice } from "./farmResolve";
 
 const IDENTITIES_DIR = `${FAKE_HOME}/.claude-use/identities`;
@@ -23,7 +23,7 @@ describe("resolveFarmConflicts", () => {
       decide: fixedAnswer("skip"),
     });
 
-    expect(result).toEqual({ resolved: [], removed: [], retained: [] });
+    expect(result).toEqual({ resolved: [], autoResolved: [], removed: [], retained: [] });
   });
 
   it("carries over non-colliding data and removes the superseded farm without asking anything", async () => {
@@ -148,6 +148,77 @@ describe("resolveFarmConflicts", () => {
 
     expect(result.removed).toEqual([previousB]);
     expect(result.retained).toEqual([previousA]);
+  });
+
+  it("auto-resolves a runtime-category collision without ever calling decide, and removes the superseded farm once nothing else remains", async () => {
+    const fs = createFakeFarmFs({
+      [`${FARM}/mcp-needs-auth-cache.json`]: "new",
+      [`${PREVIOUS}/mcp-needs-auth-cache.json`]: "stale, from a crashed launch",
+    });
+
+    let decideCalls = 0;
+    const result = await resolveFarmConflicts({
+      fs,
+      identitiesDir: IDENTITIES_DIR,
+      identity: "work",
+      classification: { defaults: shippedClassification },
+      decide: () => {
+        decideCalls += 1;
+        return Promise.resolve("skip");
+      },
+    });
+
+    expect(decideCalls).toBe(0);
+    expect(result.resolved).toEqual([]);
+    expect(result.autoResolved).toEqual(["mcp-needs-auth-cache.json"]);
+    expect(result.removed).toEqual([PREVIOUS]);
+    expect(result.retained).toEqual([]);
+    expect(fs.readFileUtf8(`${FARM}/mcp-needs-auth-cache.json`)).toBe("new");
+  });
+
+  it("auto-resolves a runtime collision but still asks about a genuine one alongside it in the same superseded farm, retaining the directory until that one is decided", async () => {
+    const fs = createFakeFarmFs({
+      [`${FARM}/settings.json`]: "new settings",
+      [`${PREVIOUS}/settings.json`]: "old settings",
+      [`${FARM}/mcp-needs-auth-cache.json`]: "new",
+      [`${PREVIOUS}/mcp-needs-auth-cache.json`]: "stale",
+    });
+
+    const seen: string[] = [];
+    const result = await resolveFarmConflicts({
+      fs,
+      identitiesDir: IDENTITIES_DIR,
+      identity: "work",
+      classification: { defaults: shippedClassification },
+      decide: (conflict) => {
+        seen.push(conflict.name);
+        return Promise.resolve("skip");
+      },
+    });
+
+    expect(seen).toEqual(["settings.json"]);
+    expect(result.autoResolved).toEqual(["mcp-needs-auth-cache.json"]);
+    expect(result.resolved).toEqual([{ previousRoot: PREVIOUS, farmRoot: FARM, name: "settings.json", choice: "skip" }]);
+    expect(result.retained).toEqual([PREVIOUS]);
+    expect(fs.lstat(`${PREVIOUS}/mcp-needs-auth-cache.json`)).toBeUndefined();
+    expect(fs.readFileUtf8(`${PREVIOUS}/settings.json`)).toBe("old settings");
+  });
+
+  it("falls back to asking about a runtime-category collision when no classification is given at all", async () => {
+    const fs = createFakeFarmFs({
+      [`${FARM}/mcp-needs-auth-cache.json`]: "new",
+      [`${PREVIOUS}/mcp-needs-auth-cache.json`]: "stale",
+    });
+
+    const result = await resolveFarmConflicts({
+      fs,
+      identitiesDir: IDENTITIES_DIR,
+      identity: "work",
+      decide: fixedAnswer("keep-new"),
+    });
+
+    expect(result.autoResolved).toEqual([]);
+    expect(result.resolved).toEqual([{ previousRoot: PREVIOUS, farmRoot: FARM, name: "mcp-needs-auth-cache.json", choice: "keep-new" }]);
   });
 
   it("never asks about a directory the manifest recorded as materialised by the prior resync", async () => {

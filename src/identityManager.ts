@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Command } from "commander";
 
+import { loadClassification } from "./config/classify";
 import { ConfigValidationError } from "./config/load";
 import { applyPatch, readJson, writeJsonAtomic, writeTextAtomic } from "./config/store";
 import { IdentitySchema, type Identity } from "./config/schema";
@@ -302,6 +303,7 @@ export function registerIdentityCommand(program: Command, paths: LayoutPaths): v
         fs: realFarmFs,
         identitiesDir: paths.identitiesDir,
         identity: name,
+        classification: loadClassification(paths),
         decide: async (conflict) => {
           const choice = await realPromptsPort.select<FarmConflictChoice>({
             message:
@@ -317,8 +319,16 @@ export function registerIdentityCommand(program: Command, paths: LayoutPaths): v
         },
       });
 
+      if (result.autoResolved.length > 0) {
+        console.log(
+          `Auto-resolved ${result.autoResolved.length} disposable runtime entr${result.autoResolved.length === 1 ? "y" : "ies"} ` +
+            `with no prompt (${result.autoResolved.join(", ")}) — per-process/per-machine state, never worth asking about.`,
+        );
+      }
       if (result.resolved.length === 0) {
-        console.log(`No superseded farm data to resolve for identity "${name}".`);
+        if (result.autoResolved.length === 0) {
+          console.log(`No superseded farm data to resolve for identity "${name}".`);
+        }
         return;
       }
       for (const conflict of result.resolved) {
