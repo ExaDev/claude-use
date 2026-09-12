@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { createFakeFarmFs, fakeSleep, FAKE_CLAUDE_HOME, FAKE_HOME, FAKE_NOW_MS, shippedClassification, type FakeFarmFs } from "../test-helpers";
 import type { CascadeInput } from "../resolve/walk";
-import { FARM_MANIFEST_FILENAME, readFarmManifest, resyncFarm, type ResyncFarmParams } from "./farm";
+import { FARM_MANIFEST_FILENAME, readFarmManifest, recoveryDiagnostics, resyncFarm, type RecoveryResult, type ResyncFarmParams } from "./farm";
 import { IdentityLockBusyError, identityLockPath } from "./lock";
 
 const IDENTITIES_DIR = `${FAKE_HOME}/.claude-use/identities`;
@@ -231,6 +231,22 @@ describe("resyncFarm", () => {
     expect(fs.lstat(`${IDENTITIES_DIR}/.work.previous.crashed`)).toBeUndefined();
   });
 
+  it("discards a runtime-category collision automatically rather than retaining the superseded farm for it", () => {
+    const fs = createFakeFarmFs(CANONICAL);
+    resyncFarm(params(fs));
+    fs.seed({
+      [`${FARM}/mcp-needs-auth-cache.json`]: "current",
+      [`${IDENTITIES_DIR}/.work.previous.crashed/mcp-needs-auth-cache.json`]: "stale, from the crashed launch",
+    });
+
+    const result = resyncFarm(params(fs, { uniqueSuffix: "recovered" }));
+
+    expect(result.recovery.autoResolved).toEqual(["mcp-needs-auth-cache.json"]);
+    expect(result.recovery.retained).toEqual([]);
+    expect(fs.lstat(`${IDENTITIES_DIR}/.work.previous.crashed`)).toBeUndefined();
+    expect(fs.readFileUtf8(`${FARM}/mcp-needs-auth-cache.json`)).toBe("current");
+  });
+
   it("keeps a superseded farm on disk rather than discarding data the new farm also has an entry for", () => {
     const fs = createFakeFarmFs(CANONICAL);
     resyncFarm(params(fs));
@@ -290,5 +306,44 @@ describe("resyncFarm", () => {
       .snapshot(IDENTITIES_DIR)
       .filter((entry) => path.basename(entry).startsWith(".work.") && path.dirname(entry) === IDENTITIES_DIR);
     expect(strays).toEqual([]);
+  });
+});
+
+describe("recoveryDiagnostics", () => {
+  const base: RecoveryResult = { removedScratch: [], completed: [], autoResolved: [], retained: [], recovered: false };
+
+  it("reports nothing when recovery found nothing to do", () => {
+    expect(recoveryDiagnostics(base, "work")).toEqual([]);
+  });
+
+  it("mentions what was auto-resolved, by name, distinctly from what still needs a human", () => {
+    const [diagnostic] = recoveryDiagnostics(
+      { ...base, recovered: true, autoResolved: ["mcp-needs-auth-cache.json"] },
+      "work",
+    );
+    expect(diagnostic?.message).toContain("discarded 1 superseded runtime entry (mcp-needs-auth-cache.json)");
+    expect(diagnostic?.message).not.toContain("identity resolve");
+  });
+
+  it("pluralises the count correctly for more than one auto-resolved entry", () => {
+    const [diagnostic] = recoveryDiagnostics(
+      { ...base, recovered: true, autoResolved: ["mcp-needs-auth-cache.json", ".last-cleanup"] },
+      "work",
+    );
+    expect(diagnostic?.message).toContain("discarded 2 superseded runtime entries");
+  });
+
+  it("still points at identity resolve for a genuinely retained collision, alongside a separate auto-resolved one", () => {
+    const [diagnostic] = recoveryDiagnostics(
+      {
+        ...base,
+        recovered: true,
+        autoResolved: ["mcp-needs-auth-cache.json"],
+        retained: [`${IDENTITIES_DIR}/.work.previous.crashed`],
+      },
+      "work",
+    );
+    expect(diagnostic?.message).toContain("discarded 1 superseded runtime entry");
+    expect(diagnostic?.message).toContain("claude-use identity resolve work");
   });
 });

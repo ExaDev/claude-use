@@ -203,13 +203,19 @@ export interface CarryOverParams {
   readonly previousRoot: string;
   /** The new farm, already swapped into place. */
   readonly farmRoot: string;
+  /**
+   * When given, a colliding name classified as `runtime` is resolved automatically rather than reported — see `CarryOverResult.autoResolved` for why that is always safe. Optional because a caller with no classification loaded (there is none, today) should get the old, fully-manual behaviour rather than a crash; every real call site passes it.
+   */
+  readonly classification?: { readonly defaults: CategoryClassification; readonly overlay?: CategoryClassificationOverlay };
 }
 
-/** What `carryOver` moved and what it could not. */
+/** What `carryOver` moved, resolved on its own, and could not. */
 export interface CarryOverResult {
   /** Top-level names moved from the superseded farm into the new one. */
   readonly carried: readonly string[];
-  /** Top-level names left behind because the new farm has its own entry of that name. */
+  /** Top-level names that collided but were resolved automatically because their category is `runtime` — see the doc comment on `carryOver` for why discarding the old copy is always safe here. */
+  readonly autoResolved: readonly string[];
+  /** Top-level names left behind because the new farm has its own entry of that name, and resolving them needs a human — everything that collided but was not classified `runtime`. */
   readonly collided: readonly string[];
 }
 
@@ -220,7 +226,11 @@ export interface CarryOverResult {
  *
  * Anything the previous resync built itself is skipped rather than carried: a symlink is a view of the canonical tree with no data of its own, and a directory the manifest records as materialised had its real children adopted into `~/.claude` before the swap ever started. Everything else is real local data and moves across by rename, so a credential file is relocated rather than duplicated — never briefly existing as two copies on disk.
  *
- * A name that exists in both is reported rather than resolved automatically here — overwriting the new farm's own entry would discard whatever the resync just decided; overwriting the old one would discard data. The caller keeps the superseded farm on disk in that case. Exported so `launcher/farmResolve.ts` can reuse this exact collision detection for `claude-use identity resolve`'s interactive pass, rather than a second implementation that could drift from this one.
+ * A name that exists in both is genuinely ambiguous in general — overwriting the new farm's own entry would discard whatever the resync just decided; overwriting the old one would discard data — so by default it is reported rather than resolved here, and the caller keeps the superseded farm on disk in that case.
+ *
+ * One category is not ambiguous, though: `runtime`'s own definition (see `config/categories.default.json`'s category table in the README) is specifically "live per-process or per-machine artifacts" — daemon locks, an MCP auth-needed cache, an update-check result — that make no sense being preserved across a swap at all, let alone fought over. When `classification` is given, a colliding name whose category resolves to `runtime` is discarded from the superseded copy and left exactly as the new farm already has it, with no data ever moved: `keep-new` is not a judgement call for this category, it is what the category already means. This needs only the name's *static* classification, never the resolved shared/not-shared decision for the current directory — a `runtime` entry is disposable whether or not this identity currently chooses to share it, so no cascade resolution is needed to make the call.
+ *
+ * Exported so `launcher/farmResolve.ts` can reuse this exact collision detection (and the same `runtime` auto-resolution) for `claude-use identity resolve`'s interactive pass, rather than a second implementation that could drift from this one.
  */
 export function carryOver(params: CarryOverParams): CarryOverResult {
   const manifest = readFarmManifest(params.fs, params.previousRoot);
@@ -233,6 +243,7 @@ export function carryOver(params: CarryOverParams): CarryOverResult {
   }
 
   const carried: string[] = [];
+  const autoResolved: string[] = [];
   const collided: string[] = [];
 
   for (const name of [...params.fs.readdir(params.previousRoot)].sort()) {
@@ -244,6 +255,15 @@ export function carryOver(params: CarryOverParams): CarryOverResult {
       continue;
     }
     if (params.fs.lstat(path.join(params.farmRoot, name)) !== undefined) {
+      const category =
+        params.classification === undefined
+          ? undefined
+          : classifyEntries([name], params.classification).classification.get(name);
+      if (category === "runtime") {
+        params.fs.removeRecursive(path.join(params.previousRoot, name));
+        autoResolved.push(name);
+        continue;
+      }
       collided.push(name);
       continue;
     }
@@ -251,7 +271,7 @@ export function carryOver(params: CarryOverParams): CarryOverResult {
     carried.push(name);
   }
 
-  return { carried, collided };
+  return { carried, autoResolved, collided };
 }
 
 /** Inputs to `buildScratchTree`. */
@@ -293,6 +313,7 @@ interface SwapInParams {
   readonly scratchRoot: string;
   /** Where the superseded farm is renamed to. Must be a sibling of `farmRoot` so the rename stays within one filesystem. */
   readonly previousRoot: string;
+  readonly classification?: { readonly defaults: CategoryClassification; readonly overlay?: CategoryClassificationOverlay };
 }
 
 /** What the swap did. */
@@ -314,13 +335,18 @@ function swapIn(params: SwapInParams): SwapInResult {
   if (params.fs.lstat(params.farmRoot) === undefined) {
     params.fs.mkdirp(path.dirname(params.farmRoot));
     params.fs.rename(params.scratchRoot, params.farmRoot);
-    return { carried: [], collided: [] };
+    return { carried: [], autoResolved: [], collided: [] };
   }
 
   params.fs.rename(params.farmRoot, params.previousRoot);
   params.fs.rename(params.scratchRoot, params.farmRoot);
 
-  const result = carryOver({ fs: params.fs, previousRoot: params.previousRoot, farmRoot: params.farmRoot });
+  const result = carryOver({
+    fs: params.fs,
+    previousRoot: params.previousRoot,
+    farmRoot: params.farmRoot,
+    ...(params.classification === undefined ? {} : { classification: params.classification }),
+  });
   if (result.collided.length === 0) {
     params.fs.removeRecursive(params.previousRoot);
     return result;
@@ -334,6 +360,7 @@ interface RecoverInterruptedSwapParams {
   readonly identitiesDir: string;
   readonly identity: string;
   readonly farmRoot: string;
+  readonly classification?: { readonly defaults: CategoryClassification; readonly overlay?: CategoryClassificationOverlay };
 }
 
 /** What recovery found and did. */
@@ -344,7 +371,9 @@ export interface RecoveryResult {
   readonly restoredFrom?: string;
   /** Superseded farms whose carry-over was completed and which were then discarded. */
   readonly completed: readonly string[];
-  /** Superseded farms left on disk because they still held colliding data. */
+  /** Top-level names, across every superseded farm processed, resolved automatically because their category is `runtime` — see `carryOver`'s own doc comment for why that needs no human decision. */
+  readonly autoResolved: readonly string[];
+  /** Superseded farms left on disk because they still held colliding data a human still needs to decide. */
   readonly retained: readonly string[];
   /** True when recovery changed anything, in which case the farm cannot be assumed to match its own manifest. */
   readonly recovered: boolean;
@@ -378,10 +407,17 @@ function recoverInterruptedSwap(params: RecoverInterruptedSwapParams): RecoveryR
   }
 
   const completed: string[] = [];
+  const autoResolved: string[] = [];
   const retained: string[] = [];
   for (const name of previous) {
     const previousRoot = path.join(params.identitiesDir, name);
-    const result = carryOver({ fs: params.fs, previousRoot, farmRoot: params.farmRoot });
+    const result = carryOver({
+      fs: params.fs,
+      previousRoot,
+      farmRoot: params.farmRoot,
+      ...(params.classification === undefined ? {} : { classification: params.classification }),
+    });
+    autoResolved.push(...result.autoResolved);
     if (result.collided.length === 0) {
       params.fs.removeRecursive(previousRoot);
       completed.push(name);
@@ -394,8 +430,14 @@ function recoverInterruptedSwap(params: RecoverInterruptedSwapParams): RecoveryR
     removedScratch,
     ...(restoredFrom === undefined ? {} : { restoredFrom }),
     completed,
+    autoResolved,
     retained,
-    recovered: removedScratch.length > 0 || restoredFrom !== undefined || completed.length > 0 || retained.length > 0,
+    recovered:
+      removedScratch.length > 0 ||
+      restoredFrom !== undefined ||
+      completed.length > 0 ||
+      autoResolved.length > 0 ||
+      retained.length > 0,
   };
 }
 
@@ -406,6 +448,7 @@ export interface RecoverFarmParams {
   readonly identity: string;
   readonly now: () => number;
   readonly lock: ResyncFarmParams["lock"];
+  readonly classification?: { readonly defaults: CategoryClassification; readonly overlay?: CategoryClassificationOverlay };
 }
 
 /**
@@ -435,6 +478,7 @@ export function recoverFarm(params: RecoverFarmParams): RecoveryResult {
       identitiesDir: params.identitiesDir,
       identity: params.identity,
       farmRoot,
+      ...(params.classification === undefined ? {} : { classification: params.classification }),
     });
   } finally {
     lock.release();
@@ -633,6 +677,7 @@ export function resyncFarm(params: ResyncFarmParams): ResyncFarmResult {
       identitiesDir: params.identitiesDir,
       identity: params.identity,
       farmRoot,
+      classification: params.classification,
     });
 
     const previousManifest = readFarmManifest(params.fs, farmRoot);
@@ -713,7 +758,7 @@ export function resyncFarm(params: ResyncFarmParams): ResyncFarmResult {
     const scratchRoot = path.join(params.identitiesDir, `.${params.identity}.scratch.${params.uniqueSuffix}`);
     const previousRoot = path.join(params.identitiesDir, `.${params.identity}.previous.${params.uniqueSuffix}`);
     buildScratchTree({ fs: params.fs, scratchRoot, plan: resolved.farm, manifest });
-    const swap = swapIn({ fs: params.fs, farmRoot, scratchRoot, previousRoot });
+    const swap = swapIn({ fs: params.fs, farmRoot, scratchRoot, previousRoot, classification: params.classification });
 
     if (swap.retainedPrevious !== undefined) {
       diagnostics.push({
@@ -756,6 +801,9 @@ export function recoveryDiagnostics(recovery: RecoveryResult, identity: string):
   }
   if (recovery.completed.length > 0) {
     parts.push(`finished carrying local state out of ${recovery.completed.length} superseded farm(s)`);
+  }
+  if (recovery.autoResolved.length > 0) {
+    parts.push(`discarded ${recovery.autoResolved.length} superseded runtime entr${recovery.autoResolved.length === 1 ? "y" : "ies"} (${recovery.autoResolved.join(", ")}) — disposable per-machine state, safe to drop without asking`);
   }
   if (recovery.retained.length > 0) {
     parts.push(

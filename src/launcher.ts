@@ -112,6 +112,7 @@ export function runLauncher(params: RunLauncherParams): void {
         identity: farmIdentity,
         now: farm.now,
         lock: farm.lock,
+        classification: farm.classification,
       });
     } catch (error) {
       if (error instanceof IdentityLockBusyError) {
