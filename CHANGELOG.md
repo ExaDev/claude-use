@@ -1,3 +1,9 @@
+## [2.4.0](https://github.com/ExaDev/claude-use/compare/v2.3.1...v2.4.0) (2026-09-12)
+
+### Features
+
+* default the new-identity wizard's profile prompt to skip ([eb2faf8](https://github.com/ExaDev/claude-use/commit/eb2faf80c2b8a8b5532f96c6d1d228086c31a0f3))
+
 ## [2.3.1](https://github.com/ExaDev/claude-use/compare/v2.3.0...v2.3.1) (2026-09-12)
 
 ### Bug Fixes
