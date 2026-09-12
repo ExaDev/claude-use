@@ -49,7 +49,12 @@ export class UnsupportedShimSourceError extends CliError {
  * Deliberately not "preserve whatever extension the source has" — an npm install's own file is `cli.cjs`, and a bare `claude` (not `claude.cjs`) is what makes it invocable as the expected command on POSIX, where a shebang plus the executable bit is what matters, not the filename's extension.
  */
 export function claudeTargetFilename(ownExecutablePath: string): string {
-  return ownExecutablePath.toLowerCase().endsWith(".exe") ? "claude.exe" : "claude";
+  return commandFilename(ownExecutablePath, "claude");
+}
+
+/** The same rule generalised to any command name this tool owns, so `doctor`'s PATH-resolution check can ask "what filename would a bare `claude-use` be" without restating the Windows `.exe` condition and letting the two drift apart. */
+export function commandFilename(ownExecutablePath: string, commandName: string): string {
+  return ownExecutablePath.toLowerCase().endsWith(".exe") ? `${commandName}.exe` : commandName;
 }
 
 /**

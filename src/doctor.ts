@@ -4,7 +4,14 @@ import type { Command } from "commander";
 import type { z } from "zod";
 
 import { lookupKeychainService } from "./check";
-import { ClaudeShimStateSchema, resolveOwnInstallDirs, type ClaudeShimState } from "./claudeShim";
+import {
+  ClaudeShimStateSchema,
+  commandFilename,
+  findPathShadow,
+  resolveOwnInstallDirs,
+  type ClaudeShimState,
+  type PathShadowStatus,
+} from "./claudeShim";
 import { ConfigValidationError } from "./config/load";
 import { readJson } from "./config/store";
 import {
@@ -14,10 +21,11 @@ import {
   GlobalConfigSchema,
   IdentitySchema,
 } from "./config/schema";
+import { isIdentityDirectoryName } from "./identityManager";
 import { detectAmbientCredential, formatAmbientCredentialGuardMessage } from "./launcher/guard";
 import type { RunPort } from "./launcher/ports";
 import type { LayoutPaths } from "./paths";
-import { realFsPort, realOwnExecutablePath, realResolveClaudeBinary, realRunPort } from "./realPorts";
+import { findExecutableInDir, realFsPort, realOwnExecutablePath, realResolveClaudeBinary, realRunPort } from "./realPorts";
 import { lineariseProfile, type ProfileLoader, type ProfileSource } from "./resolve/extends";
 import type { DiscoveredClaudeBinary } from "./versionDiscovery";
 
@@ -27,6 +35,7 @@ type DoctorSection =
   | "ambient-credential"
   | "binary-discovery"
   | "claude-shim"
+  | "path-resolution"
   | "config-profile"
   | "identity"
   | "keychain"
@@ -76,6 +85,33 @@ type DoctorBinaryDiscovery =
   | { readonly ok: true; readonly binary: DiscoveredClaudeBinary }
   | { readonly ok: false; readonly message: string };
 
+/**
+ * Where a bare command name resolves for the two names this tool owns.
+ *
+ * `ownExecutablePath` is this process's own PATH-visible location (`realOwnExecutablePath()`); `claudeUse` is `findPathShadow`'s verdict for a bare `claude-use` against the directory that executable lives in. `claude` is only populated when a shim is actually enabled — without one, a `claude` on PATH is Claude Code's own binary, which is not a shadow of anything.
+ */
+interface DoctorPathResolution {
+  readonly ownExecutablePath: string;
+  readonly claudeUse: PathShadowStatus;
+  readonly claude?: PathShadowStatus;
+}
+
+/**
+ * Collapses a `shadowed` verdict back to `ok` when the shadowing entry and this executable are literally the same file reached by two names — `findPathShadow` compares *directories*, so a symlink on PATH pointing at the running executable's own real location otherwise reads as a shadow of itself.
+ *
+ * `realpath` must resolve symlinks, and must return its argument unchanged rather than throwing when the path cannot be resolved (a broken symlink, a race with an uninstall), so an unresolvable path simply stays unequal and the shadow verdict stands.
+ */
+export function refinePathShadow(
+  status: PathShadowStatus,
+  ownExecutablePath: string,
+  realpath: (target: string) => string,
+): PathShadowStatus {
+  if (status.status !== "shadowed") {
+    return status;
+  }
+  return realpath(status.by) === realpath(ownExecutablePath) ? { status: "ok" } : status;
+}
+
 /** Everything `runDoctor` needs, all of it already loaded/injected — nothing in `runDoctor` itself reads a file, shells out, or touches the farm. */
 export interface RunDoctorParams {
   readonly env: Readonly<Record<string, string | undefined>>;
@@ -88,6 +124,8 @@ export interface RunDoctorParams {
   readonly binaryDiscovery: DoctorBinaryDiscovery;
   /** Whether `claude-use shim enable` has been run, and whether its recorded target still exists on disk — pre-resolved by the wiring layer, since checking a file's existence is real I/O, not a parse-shaped pure operation. */
   readonly claudeShim: { readonly state: ClaudeShimState | undefined; readonly targetExists: boolean };
+  /** Which executables a bare `claude-use` (and, when the shim is enabled, a bare `claude`) would actually run — pre-resolved by the wiring layer, since scanning PATH is real I/O. */
+  readonly pathResolution: DoctorPathResolution;
   /** Runs `security find-generic-password` for the per-identity Keychain check. Omit to skip that check entirely (e.g. off macOS). */
   readonly run?: RunPort;
   /** `process.platform` in real use; the Keychain check only ever runs when this is `"darwin"`. */
@@ -113,6 +151,65 @@ function validateJson<S extends z.ZodType>(
     return { ok: false, message: new ConfigValidationError(input.path, result.error.issues).message };
   }
   return { ok: true, data: result.data };
+}
+
+/**
+ * Reports which `claude-use` a bare command name actually runs, and — when a `claude` shim is enabled — the same for `claude`.
+ *
+ * A shadowed `claude-use` is a `fail`, not a `warn`, because it invalidates the rest of the report rather than merely sitting alongside it: every other finding here describes the binary that produced them, which by definition is not the binary the user's own commands reach. It is also a silent failure in every other respect, since the shadowing install keeps working, just at whatever version it was frozen at. Confirmed in the wild: a hand-written wrapper script from an earlier install channel sat ahead of `~/.local/bin` on PATH and kept re-execing a month-old binary, so a naming rule that had since widened kept rejecting an `identity.json` a current claude-use had written — with nothing anywhere reporting that the running binary was not the installed one.
+ *
+ * `not-on-path` is a `warn` rather than a `fail`: invoking this tool by an absolute path, or through `npx`, is a legitimate one-off, and nothing about it is inconsistent.
+ */
+function pushPathResolution(
+  push: (section: DoctorSection, severity: DoctorSeverity, message: string, subject?: string) => void,
+  resolution: DoctorPathResolution,
+): void {
+  const ownDir = path.dirname(resolution.ownExecutablePath);
+  switch (resolution.claudeUse.status) {
+    case "ok":
+      push("path-resolution", "pass", `\`claude-use\` on PATH resolves to this running executable, ${resolution.ownExecutablePath}.`, "claude-use");
+      break;
+    case "not-on-path":
+      push(
+        "path-resolution",
+        "warn",
+        `${ownDir} is not on PATH, so a bare \`claude-use\` does not reach ${resolution.ownExecutablePath}. ` +
+          "Add it to PATH, or keep invoking this executable by its full path.",
+        "claude-use",
+      );
+      break;
+    case "shadowed":
+      push(
+        "path-resolution",
+        "fail",
+        `\`claude-use\` on PATH resolves to ${resolution.claudeUse.by}, not this running executable, ${resolution.ownExecutablePath}. ` +
+          "Every command you type runs that one instead, at whatever version it happens to be — including the checks in this report, which describe this executable. " +
+          `Remove ${resolution.claudeUse.by}, repoint it at ${resolution.ownExecutablePath}, or put ${ownDir} ahead of it on PATH.`,
+        "claude-use",
+      );
+      break;
+  }
+
+  if (resolution.claude === undefined) {
+    return;
+  }
+  switch (resolution.claude.status) {
+    case "ok":
+      push("path-resolution", "pass", "`claude` on PATH resolves to the enabled shim.", "claude");
+      break;
+    case "not-on-path":
+      push("path-resolution", "warn", "The enabled `claude` shim's directory is not on PATH — add it, or use `claude-use run` instead.", "claude");
+      break;
+    case "shadowed":
+      push(
+        "path-resolution",
+        "warn",
+        `\`claude\` on PATH resolves to ${resolution.claude.by}, not the enabled shim. ` +
+          "Put the shim's directory ahead of it on PATH, or run `claude-use shim disable` if you meant to launch that one directly.",
+        "claude",
+      );
+      break;
+  }
 }
 
 /**
@@ -160,6 +257,8 @@ export function runDoctor(params: RunDoctorParams): DoctorReport {
         "If you've upgraded claude-use since, re-run `claude-use shim enable` to refresh it.",
     );
   }
+
+  pushPathResolution(push, params.pathResolution);
 
   const profileSources = new Map<string, ProfileSource>();
   for (const entry of params.configProfiles) {
@@ -289,6 +388,7 @@ const SECTION_TITLES: Readonly<Record<DoctorSection, string>> = {
   "ambient-credential": "Ambient-credential exposure",
   "binary-discovery": "Claude Code binary discovery",
   "claude-shim": "`claude` command shim",
+  "path-resolution": "PATH resolution",
   "config-profile": "Configuration profiles",
   identity: "Identities",
   keychain: "macOS Keychain",
@@ -302,6 +402,7 @@ const SECTION_ORDER: readonly DoctorSection[] = [
   "ambient-credential",
   "binary-discovery",
   "claude-shim",
+  "path-resolution",
   "config-profile",
   "identity",
   "keychain",
@@ -341,6 +442,15 @@ export function formatDoctorReport(report: DoctorReport): string[] {
   return lines;
 }
 
+/** `fs.realpathSync` with every failure collapsed back to the input path — see `refinePathShadow` for why an unresolvable path must stay unequal rather than abort the audit. */
+function realpathOrSelf(target: string): string {
+  try {
+    return fs.realpathSync(target);
+  } catch {
+    return target;
+  }
+}
+
 /**
  * Registers `claude-use doctor` onto `program`.
  *
@@ -358,7 +468,7 @@ export function registerDoctorCommand(program: Command, paths: LayoutPaths): voi
       const identityNames = fs.existsSync(paths.identitiesDir)
         ? fs
             .readdirSync(paths.identitiesDir, { withFileTypes: true })
-            .filter((entry) => entry.isDirectory())
+            .filter((entry) => entry.isDirectory() && isIdentityDirectoryName(entry.name))
             .map((entry) => entry.name)
             .sort()
         : [];
@@ -392,6 +502,21 @@ export function registerDoctorCommand(program: Command, paths: LayoutPaths): voi
 
       const shimState = readJson(paths.claudeShimFile, ClaudeShimStateSchema);
 
+      const pathDirs = (process.env.PATH ?? "").split(path.delimiter).filter((dir) => dir !== "");
+      const claudeShimShadow =
+        shimState === undefined
+          ? undefined
+          : refinePathShadow(
+              findPathShadow({
+                pathDirs,
+                targetDir: path.dirname(shimState.targetPath),
+                targetFilename: path.basename(shimState.targetPath),
+                findExecutableInDir,
+              }),
+              shimState.targetPath,
+              realpathOrSelf,
+            );
+
       const report = runDoctor({
         env: process.env,
         identities,
@@ -402,6 +527,20 @@ export function registerDoctorCommand(program: Command, paths: LayoutPaths): voi
         activeIdentity: { path: paths.activeIdentityFile, raw: realFsPort.readFileUtf8(paths.activeIdentityFile) },
         binaryDiscovery,
         claudeShim: { state: shimState, targetExists: shimState !== undefined && fs.existsSync(shimState.targetPath) },
+        pathResolution: {
+          ownExecutablePath,
+          claudeUse: refinePathShadow(
+            findPathShadow({
+              pathDirs,
+              targetDir: path.dirname(ownExecutablePath),
+              targetFilename: commandFilename(ownExecutablePath, "claude-use"),
+              findExecutableInDir,
+            }),
+            ownExecutablePath,
+            realpathOrSelf,
+          ),
+          ...(claudeShimShadow === undefined ? {} : { claude: claudeShimShadow }),
+        },
         run: realRunPort,
         platform: process.platform,
       });

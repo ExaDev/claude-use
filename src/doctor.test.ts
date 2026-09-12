@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatDoctorReport,
+  refinePathShadow,
   runDoctor,
   type DoctorConfigProfileInput,
   type DoctorIdentityInput,
@@ -22,6 +23,7 @@ function baseParams(overrides: Partial<RunDoctorParams> = {}): RunDoctorParams {
     activeIdentity: { path: "/claude-use/active-identity", raw: undefined },
     binaryDiscovery: DISCOVERED_BINARY,
     claudeShim: { state: undefined, targetExists: false },
+    pathResolution: { ownExecutablePath: "/home/u/.local/bin/claude-use", claudeUse: { status: "ok" } },
     platform: "linux",
     ...overrides,
   };
@@ -109,6 +111,88 @@ describe("runDoctor: claude-shim", () => {
     const [finding] = findingsFor(report, "claude-shim");
     expect(finding?.severity).toBe("warn");
     expect(report.ok).toBe(true);
+  });
+});
+
+describe("runDoctor: path-resolution", () => {
+  it("passes when a bare `claude-use` reaches this running executable", () => {
+    const report = runDoctor(baseParams());
+    const [finding] = findingsFor(report, "path-resolution");
+    expect(finding?.severity).toBe("pass");
+    expect(finding?.message).toContain("/home/u/.local/bin/claude-use");
+    expect(report.ok).toBe(true);
+  });
+
+  it("fails when an earlier PATH entry shadows the running executable, naming both and how to fix it", () => {
+    const report = runDoctor(
+      baseParams({
+        pathResolution: {
+          ownExecutablePath: "/home/u/.local/bin/claude-use",
+          claudeUse: { status: "shadowed", by: "/home/u/.dotfiles/bin/claude-use" },
+        },
+      }),
+    );
+    const [finding] = findingsFor(report, "path-resolution");
+    expect(finding?.severity).toBe("fail");
+    expect(finding?.message).toContain("/home/u/.dotfiles/bin/claude-use");
+    expect(finding?.message).toContain("/home/u/.local/bin/claude-use");
+    expect(finding?.message).toContain("/home/u/.local/bin ahead of it on PATH");
+    expect(report.ok).toBe(false);
+  });
+
+  it("warns, not fails, when the running executable's own directory is not on PATH at all", () => {
+    const report = runDoctor(
+      baseParams({
+        pathResolution: { ownExecutablePath: "/tmp/npx-cache/claude-use", claudeUse: { status: "not-on-path" } },
+      }),
+    );
+    const [finding] = findingsFor(report, "path-resolution");
+    expect(finding?.severity).toBe("warn");
+    expect(report.ok).toBe(true);
+  });
+
+  it("reports nothing about `claude` when no shim is enabled, since a `claude` on PATH is then Claude Code's own binary", () => {
+    const report = runDoctor(baseParams());
+    expect(findingsFor(report, "path-resolution").map((finding) => finding.subject)).toEqual(["claude-use"]);
+  });
+
+  it("warns, not fails, when an enabled `claude` shim is shadowed — the launcher is still reachable as `claude-use run`", () => {
+    const report = runDoctor(
+      baseParams({
+        pathResolution: {
+          ownExecutablePath: "/home/u/.local/bin/claude-use",
+          claudeUse: { status: "ok" },
+          claude: { status: "shadowed", by: "/opt/homebrew/bin/claude" },
+        },
+      }),
+    );
+    const claudeFinding = findingsFor(report, "path-resolution").find((finding) => finding.subject === "claude");
+    expect(claudeFinding?.severity).toBe("warn");
+    expect(claudeFinding?.message).toContain("/opt/homebrew/bin/claude");
+    expect(report.ok).toBe(true);
+  });
+});
+
+describe("refinePathShadow", () => {
+  it("leaves a genuine shadow alone", () => {
+    const status = refinePathShadow({ status: "shadowed", by: "/a/claude-use" }, "/b/claude-use", (target) => target);
+    expect(status).toEqual({ status: "shadowed", by: "/a/claude-use" });
+  });
+
+  it("collapses to ok when both names resolve to the same real file", () => {
+    const realpaths: Record<string, string> = { "/a/claude-use": "/real/claude-use", "/b/claude-use": "/real/claude-use" };
+    const status = refinePathShadow(
+      { status: "shadowed", by: "/a/claude-use" },
+      "/b/claude-use",
+      (target) => realpaths[target] ?? target,
+    );
+    expect(status).toEqual({ status: "ok" });
+  });
+
+  it("passes through every non-shadowed status untouched", () => {
+    const realpath = (target: string): string => target;
+    expect(refinePathShadow({ status: "ok" }, "/b/claude-use", realpath)).toEqual({ status: "ok" });
+    expect(refinePathShadow({ status: "not-on-path" }, "/b/claude-use", realpath)).toEqual({ status: "not-on-path" });
   });
 });
 

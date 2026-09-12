@@ -179,7 +179,7 @@ export function isIdentityDirectoryName(name: string): boolean {
 }
 
 /** One identity as reported by `listIdentities`, whose `identity.json` parsed and validated cleanly. */
-export interface IdentityListEntry {
+interface IdentityListEntry {
   readonly name: string;
   readonly identity: Identity;
   readonly isActive: boolean;
@@ -187,7 +187,7 @@ export interface IdentityListEntry {
 }
 
 /** One identity whose `identity.json` is present but unreadable — malformed JSON, or valid JSON this version's `IdentitySchema` rejects. `problem` carries the reason, already flattened onto a single line. */
-export interface UnreadableIdentityListEntry {
+interface UnreadableIdentityListEntry {
   readonly name: string;
   readonly identity?: never;
   readonly isActive: boolean;
