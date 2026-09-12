@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Command } from "commander";
 
+import { ConfigValidationError } from "./config/load";
 import { applyPatch, readJson, writeJsonAtomic, writeTextAtomic } from "./config/store";
 import { IdentitySchema, type Identity } from "./config/schema";
 import { realPromptsPort, runProfileWizard, type PromptsPort } from "./configure";
@@ -168,31 +169,76 @@ export function readActiveIdentity(paths: LayoutPaths): string | undefined {
   return raw === "" ? undefined : raw;
 }
 
-/** One identity as reported by `listIdentities`. */
+/**
+ * Whether a directory name directly under `identitiesDir` names an actual identity, rather than one of claude-use's own farm directories.
+ *
+ * `IdentitySchema` requires an identity name to start with a letter or digit, so a leading `.` can only be a resync's own bookkeeping — a `.<identity>.scratch.<suffix>` tree still being built, or a `.<identity>.previous.<suffix>` superseded farm retained for `claude-use identity resolve`. Neither is an identity, and neither should be reported as a broken one for lacking an `identity.json` a resync never put there.
+ */
+export function isIdentityDirectoryName(name: string): boolean {
+  return !name.startsWith(".");
+}
+
+/** One identity as reported by `listIdentities`, whose `identity.json` parsed and validated cleanly. */
 export interface IdentityListEntry {
   readonly name: string;
   readonly identity: Identity;
   readonly isActive: boolean;
+  readonly problem?: never;
 }
 
-/** Lists every identity under `identitiesDir` that has a valid `identity.json`, marking which one (if any) is currently active. */
-export function listIdentities(paths: LayoutPaths): readonly IdentityListEntry[] {
+/** One identity whose `identity.json` is present but unreadable — malformed JSON, or valid JSON this version's `IdentitySchema` rejects. `problem` carries the reason, already flattened onto a single line. */
+export interface UnreadableIdentityListEntry {
+  readonly name: string;
+  readonly identity?: never;
+  readonly isActive: boolean;
+  readonly problem: string;
+}
+
+/** Either shape `listIdentities` can report, discriminated by which of `identity`/`problem` is present rather than by a tag field — the two are never simultaneously satisfiable. */
+export type IdentityListing = IdentityListEntry | UnreadableIdentityListEntry;
+
+/**
+ * Reads one identity for `listIdentities`, converting an unreadable `identity.json` into a reportable problem string instead of throwing.
+ *
+ * Only the two failure modes a *file's own content* can produce are caught: a `SyntaxError` from `JSON.parse`, and the `ConfigValidationError` a schema violation raises. Anything else (a permission error, a directory where a file belongs) still propagates, since those are environment faults rather than one identity's data being bad.
+ *
+ * A wholly absent `identity.json` is neither — it yields `undefined`, and `listIdentities` skips the entry entirely. That is what keeps `identities/` retained superseded farms (`.<name>.previous.<pid>.<uuid>/`, which are real directories with no `identity.json`) out of the listing.
+ */
+function readIdentityForListing(paths: LayoutPaths, name: string): Identity | { readonly problem: string } | undefined {
+  try {
+    return readIdentity(paths, name);
+  } catch (error) {
+    if (error instanceof ConfigValidationError || error instanceof SyntaxError) {
+      return { problem: error.message.replace(/\s*\n\s*/g, " ") };
+    }
+    throw error;
+  }
+}
+
+/**
+ * Lists every identity under `identitiesDir`, marking which one (if any) is currently active.
+ *
+ * One identity whose `identity.json` cannot be read is reported as its own `UnreadableIdentityListEntry` rather than aborting the whole listing. A single bad file blocking `identity list` outright is exactly the failure mode that hides every *other* identity from view at the moment the user most needs to see them — and the file need not even be corrupt to land here, since a name written by a newer claude-use whose naming rule has since widened is rejected outright by an older binary's own copy of `IdentitySchema`.
+ */
+export function listIdentities(paths: LayoutPaths): readonly IdentityListing[] {
   if (!fs.existsSync(paths.identitiesDir)) {
     return [];
   }
   const active = readActiveIdentity(paths);
   const names = fs
     .readdirSync(paths.identitiesDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && isIdentityDirectoryName(entry.name))
     .map((entry) => entry.name)
     .sort();
 
-  const result: IdentityListEntry[] = [];
+  const result: IdentityListing[] = [];
   for (const name of names) {
-    const identity = readIdentity(paths, name);
-    if (identity !== undefined) {
-      result.push({ name, identity, isActive: name === active });
+    const read = readIdentityForListing(paths, name);
+    if (read === undefined) {
+      continue;
     }
+    const isActive = name === active;
+    result.push("problem" in read ? { name, isActive, problem: read.problem } : { name, identity: read, isActive });
   }
   return result;
 }
@@ -295,12 +341,19 @@ export function registerIdentityCommand(program: Command, paths: LayoutPaths): v
       }
       for (const entry of entries) {
         const marker = entry.isActive ? "* " : "  ";
+        if (entry.problem !== undefined) {
+          console.log(`${marker}${entry.name} [unreadable: ${entry.problem}]`);
+          continue;
+        }
         const defaultProfile =
           entry.identity.defaultConfigProfile !== undefined
             ? ` (default profile: ${entry.identity.defaultConfigProfile})`
             : "";
         const ambient = entry.identity.allowAmbientCredential ? " [allows ambient credential]" : "";
         console.log(`${marker}${entry.name}${defaultProfile}${ambient}`);
+      }
+      if (entries.some((entry) => entry.problem !== undefined)) {
+        console.log("\nRun `claude-use doctor` for the full detail on every unreadable entry.");
       }
     });
 
