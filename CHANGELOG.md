@@ -1,3 +1,9 @@
+## [2.3.1](https://github.com/ExaDev/claude-use/compare/v2.3.0...v2.3.1) (2026-09-12)
+
+### Bug Fixes
+
+* retry the npm tarball fetch long enough to survive real propagation lag ([579b7b2](https://github.com/ExaDev/claude-use/commit/579b7b24c158d5b59f95b5e87f194a4c6f1fe58f))
+
 ## [2.3.0](https://github.com/ExaDev/claude-use/compare/v2.2.0...v2.3.0) (2026-09-12)
 
 ### Features
