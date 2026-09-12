@@ -10,6 +10,7 @@ import {
   IdentityNotFoundError,
   InvalidIdentityNameError,
   addIdentity,
+  isIdentityDirectoryName,
   listIdentities,
   readActiveIdentity,
   readIdentity,
@@ -219,6 +220,18 @@ describe("identityManager", () => {
     });
   });
 
+  describe("isIdentityDirectoryName", () => {
+    it("accepts a name IdentitySchema itself would accept", () => {
+      expect(isIdentityDirectoryName("work")).toBe(true);
+      expect(isIdentityDirectoryName("joseph.mearman@exadev.io")).toBe(true);
+    });
+
+    it("rejects both farm-bookkeeping shapes, which an identity name could never take", () => {
+      expect(isIdentityDirectoryName(".work.previous.123.abc")).toBe(false);
+      expect(isIdentityDirectoryName(".work.scratch.123.abc")).toBe(false);
+    });
+  });
+
   describe("listIdentities", () => {
     it("returns an empty list when no identities exist", () => {
       expect(listIdentities(paths)).toEqual([]);
@@ -235,11 +248,64 @@ describe("identityManager", () => {
       expect(entries.find((entry) => entry.name === "work")?.isActive).toBe(false);
     });
 
-    it("skips a directory under identitiesDir that has no valid identity.json", () => {
+    it("skips a directory under identitiesDir that has no identity.json at all", () => {
       addIdentity(paths, "work");
       fs.mkdirSync(path.join(paths.identitiesDir, "not-an-identity"), { recursive: true });
       const entries = listIdentities(paths);
       expect(entries.map((entry) => entry.name)).toEqual(["work"]);
+    });
+
+    it("skips a retained superseded farm even when a crash left a readable identity.json inside it", () => {
+      addIdentity(paths, "work");
+      const retained = path.join(paths.identitiesDir, ".work.previous.123.abc");
+      fs.mkdirSync(retained, { recursive: true });
+      fs.writeFileSync(
+        path.join(retained, "identity.json"),
+        JSON.stringify({ name: "work", allowAmbientCredential: false }),
+        "utf8",
+      );
+      fs.mkdirSync(path.join(paths.identitiesDir, ".work.scratch.456.def"), { recursive: true });
+
+      expect(listIdentities(paths).map((entry) => entry.name)).toEqual(["work"]);
+    });
+
+    it("reports an identity.json this version's schema rejects as its own unreadable entry instead of aborting the whole listing", () => {
+      addIdentity(paths, "work");
+      const rejectedDir = path.join(paths.identitiesDir, "written-by-a-newer-claude-use");
+      fs.mkdirSync(rejectedDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(rejectedDir, "identity.json"),
+        JSON.stringify({ name: "a name a future naming rule allows!", allowAmbientCredential: false }),
+        "utf8",
+      );
+
+      const entries = listIdentities(paths);
+      expect(entries.map((entry) => entry.name)).toEqual(["work", "written-by-a-newer-claude-use"]);
+
+      const rejected = entries.find((entry) => entry.name === "written-by-a-newer-claude-use");
+      expect(rejected?.identity).toBeUndefined();
+      expect(rejected?.problem).toContain("must match pattern");
+      expect(rejected?.problem).not.toContain("\n");
+      expect(entries.find((entry) => entry.name === "work")?.identity?.name).toBe("work");
+    });
+
+    it("reports malformed JSON as an unreadable entry too, rather than letting the SyntaxError escape", () => {
+      const brokenDir = path.join(paths.identitiesDir, "broken");
+      fs.mkdirSync(brokenDir, { recursive: true });
+      fs.writeFileSync(path.join(brokenDir, "identity.json"), "{ not json", "utf8");
+
+      const entries = listIdentities(paths);
+      expect(entries.map((entry) => entry.name)).toEqual(["broken"]);
+      expect(entries[0]?.problem).toBeDefined();
+    });
+
+    it("still marks an unreadable identity as active when active-identity names it", () => {
+      const brokenDir = path.join(paths.identitiesDir, "broken");
+      fs.mkdirSync(brokenDir, { recursive: true });
+      fs.writeFileSync(path.join(brokenDir, "identity.json"), "{ not json", "utf8");
+      fs.writeFileSync(paths.activeIdentityFile, "broken", "utf8");
+
+      expect(listIdentities(paths)[0]?.isActive).toBe(true);
     });
   });
 
