@@ -47,6 +47,8 @@ interface PromptOption<Value extends string> {
 export interface SelectParams<Value extends string> {
   readonly message: string;
   readonly options: readonly PromptOption<Value>[];
+  /** Which option the cursor starts on. Omit to let the prompt library fall back to its own default (the first option) — pass this explicitly whenever the safest or most common answer isn't the first one listed, so the on-screen reading order and the default-on-Enter answer can differ deliberately rather than being forced to match. */
+  readonly initialValue?: Value;
 }
 
 /** Parameters for a multi-select prompt. */
@@ -103,6 +105,7 @@ export const realPromptsPort: PromptsPort = {
       .select({
         message: params.message,
         options: toClackOptions(params.options),
+        ...(params.initialValue === undefined ? {} : { initialValue: params.initialValue }),
       })
       .then((value): Value | symbol => {
         if (typeof value === "symbol" || isKnownOptionValue(value, params.options)) {

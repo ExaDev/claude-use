@@ -114,6 +114,8 @@ export async function runIdentityWizard(prompts: PromptsPort, paths: LayoutPaths
       { value: "create", label: "Create and configure a profile" },
       { value: "skip", label: "Skip for now" },
     ],
+    // Most identities need no profile of their own at all — they're meant to fall through to whatever the global default (or a directory rule) already resolves to, and a profile only earns its keep once an identity genuinely needs to diverge from that. Defaulting the cursor to "skip" makes the common, no-profile-needed case the one a bare Enter confirms, without reordering the options and making "skip" read as the first, most prominent choice on screen.
+    initialValue: "skip",
   });
   if (!prompts.isCancel(profileChoice) && profileChoice === "create") {
     const result = await runProfileWizard(prompts, { paths, defaultNewName: name });
