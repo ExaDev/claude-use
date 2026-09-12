@@ -7,6 +7,7 @@ import {
   ForeignClaudeEntryError,
   UnsupportedShimSourceError,
   claudeTargetFilename,
+  commandFilename,
   disableClaudeShim,
   enableClaudeShim,
   findPathShadow,
@@ -47,6 +48,16 @@ describe("claudeShim", () => {
 
     it("names the target bare `claude`, not `claude.cjs`, for an npm install's dist/cli.cjs", () => {
       expect(claudeTargetFilename("/usr/local/lib/node_modules/claude-use/dist/cli.cjs")).toBe("claude");
+    });
+  });
+
+  describe("commandFilename", () => {
+    it("adds no extension for an extensionless source, whatever the command name", () => {
+      expect(commandFilename("/usr/local/bin/claude-use", "claude-use")).toBe("claude-use");
+    });
+
+    it("adds .exe for a .exe source, so doctor looks for the filename PATH would actually hold on Windows", () => {
+      expect(commandFilename("C:\\bin\\claude-use.exe", "claude-use")).toBe("claude-use.exe");
     });
   });
 
