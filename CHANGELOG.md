@@ -1,3 +1,9 @@
+## [2.3.0](https://github.com/ExaDev/claude-use/compare/v2.2.0...v2.3.0) (2026-09-12)
+
+### Features
+
+* auto-resolve a runtime-category farm collision instead of asking ([3b7d3ee](https://github.com/ExaDev/claude-use/commit/3b7d3ee4fc1a282ffb21c36d934067ac35746701))
+
 ## [2.2.0](https://github.com/ExaDev/claude-use/compare/v2.1.0...v2.2.0) (2026-09-12)
 
 ### Features
