@@ -1,3 +1,13 @@
+## [2.2.0](https://github.com/ExaDev/claude-use/compare/v2.1.0...v2.2.0) (2026-09-12)
+
+### Features
+
+* report which claude-use a bare command name actually resolves to ([75ae588](https://github.com/ExaDev/claude-use/commit/75ae58806d710212a485d42b133eb94eb1bcc050))
+
+### Bug Fixes
+
+* keep listing identities when one identity.json cannot be read ([d863334](https://github.com/ExaDev/claude-use/commit/d863334d73afdd8c93a2776c4076dd9e8e6959bc))
+
 ## [2.1.0](https://github.com/ExaDev/claude-use/compare/v2.0.4...v2.1.0) (2026-09-11)
 
 ### Features
