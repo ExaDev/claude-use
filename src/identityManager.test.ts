@@ -218,6 +218,25 @@ describe("identityManager", () => {
       expect(readIdentity(paths, "joseph.mearman@exadev.io")).toBeDefined();
       expect(readActiveIdentity(paths)).toBe("joseph.mearman@exadev.io");
     });
+
+    it("defaults the profile-creation prompt's cursor to skip, so a bare Enter creates no profile", async () => {
+      const selectCalls: SelectParams<string>[] = [];
+      const base = scriptedIdentityPrompts(["create", "skip"]);
+      const spying: PromptsPort = {
+        ...base,
+        select: (params) => {
+          selectCalls.push(params);
+          return base.select(params);
+        },
+      };
+
+      await runIdentityWizard(spying, paths, "work");
+
+      const profilePrompt = selectCalls.find((call) => call.message.includes("configuration profile"));
+      expect(profilePrompt?.initialValue).toBe("skip");
+      // The option order stays create-then-skip regardless — initialValue moves the default answer without reordering what's read on screen.
+      expect(profilePrompt?.options.map((option) => option.value)).toEqual(["create", "skip"]);
+    });
   });
 
   describe("isIdentityDirectoryName", () => {
