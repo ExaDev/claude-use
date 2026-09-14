@@ -9,6 +9,9 @@ import { CliError } from "./cliError";
 import type { LayoutPaths } from "./paths";
 
 /** The claude-shim.json marker's own shape: never hand-edited, so it lives here rather than in `src/config/schema.ts`'s user-editable schemas (and is correctly excluded from `scripts/gen-schema.mts`'s published-schema generation, which only ever imports from that file). */
+// rwxr-xr-x -- the copy-fallback path below sets this explicitly since a plain copyFile doesn't preserve the source's own executable bit the way a hardlink (which shares the same inode) does.
+const EXECUTABLE_FILE_MODE = 0o755;
+
 export const ClaudeShimStateSchema = z.strictObject({
   targetPath: z.string().min(1),
   method: z.enum(["hardlink", "copy"]),
@@ -167,7 +170,7 @@ export function enableClaudeShim(params: EnableShimParams, linkFs: LinkFs = node
       throw error;
     }
     linkFs.copyFile(realContentPath, targetPath);
-    linkFs.chmod(targetPath, 0o755);
+    linkFs.chmod(targetPath, EXECUTABLE_FILE_MODE);
     method = "copy";
   }
 
@@ -265,7 +268,7 @@ export function registerShimCommand(program: Command, paths: LayoutPaths): void 
     .description("Create a `claude`-named copy of this same executable, alongside claude-use by default.")
     .option("--dir <path>", "Enable into this directory instead of alongside the running claude-use executable.")
     .option("--force", "Overwrite the target even if it doesn't look like claude-use's own doing.")
-    .action((options: { dir?: string; force?: boolean }) => {
+    .action((options: Readonly<{ dir?: string; force?: boolean }>) => {
       const ownExecutablePath = realOwnExecutablePath();
       const contentSourcePath = realContentSourcePath();
       const result = enableClaudeShim({
@@ -299,7 +302,7 @@ export function registerShimCommand(program: Command, paths: LayoutPaths): void 
     .description("Remove the `claude` command shim `shim enable` previously created. A no-op, not an error, if none is enabled.")
     .option("--dir <path>", "Look in this directory instead of trusting the recorded location.")
     .option("--force", "Remove the target even if it doesn't look like claude-use's own doing.")
-    .action((options: { dir?: string; force?: boolean }) => {
+    .action((options: Readonly<{ dir?: string; force?: boolean }>) => {
       const ownExecutablePath = realOwnExecutablePath();
       const contentSourcePath = realContentSourcePath();
       const result = disableClaudeShim({
