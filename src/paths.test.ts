@@ -66,11 +66,13 @@ describe("resolveLayoutPaths", () => {
   it("resolves every path under the test-scoped CLAUDE_USE_HOME root", () => {
     const layout = resolveLayoutPaths();
     const home = process.env.CLAUDE_USE_HOME;
-    expect(home).toBeDefined();
+    if (home === undefined) {
+      throw new Error("Expected CLAUDE_USE_HOME to be set by vitest.config.ts's test-scoped setup.");
+    }
     expect(layout.root).toBe(home);
 
     for (const value of layoutPathValues(layout)) {
-      expect(path.resolve(value).startsWith(path.resolve(home!))).toBe(true);
+      expect(path.resolve(value).startsWith(path.resolve(home))).toBe(true);
     }
   });
 });

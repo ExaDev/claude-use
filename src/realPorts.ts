@@ -116,13 +116,16 @@ export const realFarmFs: FarmFs = {
   },
 };
 
+// A single Int32Array element, the minimum SharedArrayBuffer Atomics.wait can block on.
+const INT32_BYTE_LENGTH = 4;
+
 /**
  * Blocks the current thread for `ms` milliseconds.
  *
  * The launcher is synchronous end to end, right through to `spawnSync`, so waiting on another process's identity lock cannot be done with a promise. `Atomics.wait` on a private buffer is the one way to sleep synchronously without burning the CPU in a spin loop.
  */
 export function realSleepSync(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(INT32_BYTE_LENGTH)), 0, 0, ms);
 }
 
 /** Whether a process is still running. Signal 0 performs the permission and existence checks without delivering anything; `EPERM` means the process exists but belongs to another user. */
@@ -139,7 +142,7 @@ export function realIsProcessAlive(pid: number): boolean {
 export const realRunPort: RunPort = {
   run(command, args) {
     const result = spawnSync(command, [...args], { encoding: "utf8" });
-    return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+    return { status: result.status, stdout: result.stdout, stderr: result.stderr };
   },
 };
 
@@ -176,10 +179,13 @@ export const realProcPort: ProcPort = {
 
 /** The real `LogPort`, writing info/warn to stdout and errors to stderr. */
 export const realLogPort: LogPort = {
-  info: (message: string) => console.log(message),
-  warn: (message: string) => console.warn(message),
-  error: (message: string) => console.error(message),
+  info: (message: string) => { console.log(message); },
+  warn: (message: string) => { console.warn(message); },
+  error: (message: string) => { console.error(message); },
 };
+
+// The owner/group/other execute bits (0b001 repeated in each of the three permission triads) -- a nonzero result means at least one of the three "may execute" bits is set.
+const EXECUTE_BITS_MASK = 0o111;
 
 function listVersionsDir(dir: string): VersionsDirEntry[] {
   let entries: fs.Dirent[];
@@ -199,7 +205,7 @@ function listVersionsDir(dir: string): VersionsDirEntry[] {
       return {
         name: entry.name,
         isFile: true,
-        isExecutable: (stat.mode & 0o111) !== 0,
+        isExecutable: (stat.mode & EXECUTE_BITS_MASK) !== 0,
         sizeBytes: stat.size,
       };
     });
@@ -249,7 +255,7 @@ export function resolveExecutableCandidate(
   }
 
   const mode = env.statFileMode(candidate);
-  return mode !== undefined && (mode & 0o111) !== 0 ? candidate : undefined;
+  return mode !== undefined && (mode & EXECUTE_BITS_MASK) !== 0 ? candidate : undefined;
 }
 
 function realStatFileMode(candidate: string): number | undefined {
@@ -276,10 +282,10 @@ export function findExecutableInDir(dir: string, name: string): string | undefin
 function searchPathForExecutable(
   pathDirs: readonly string[],
   name: string,
-  findExecutableInDir: (dir: string, name: string) => string | undefined,
+  findExecutable: (dir: string, name: string) => string | undefined,
 ): string | undefined {
   for (const dir of pathDirs) {
-    const found = findExecutableInDir(dir, name);
+    const found = findExecutable(dir, name);
     if (found !== undefined) {
       return found;
     }
@@ -296,7 +302,7 @@ function searchPathForExecutable(
  *
  * The redirect-if-not-on-PATH check below applies uniformly to whichever candidate we end up with — whether derived from a path-shaped `argv1`, or from the `execPath` fallback (`argv1` undefined) — since it's unconfirmed whether a Windows SEA binary duplicates `argv[0]` into `argv[1]` the same way the POSIX build does; treating both sources identically is strictly more robust either way and regresses nothing already confirmed working.
  *
- * The algorithm: if the raw candidate is a bare word with no path separator, it can only have been found via PATH lookup in the first place (Node/the OS applies no resolution to it at all), so search PATH ourselves for the first directory containing an executable of that name, reconstructing exactly what the shell already did. Otherwise, resolve it (or the `execPath` fallback) against cwd, then check whether the *resulting directory* is itself on PATH: if so, use it directly (the Homebrew/direct-invocation case — never realpath'd, since a package manager's PATH-visible entry is often a symlink elsewhere, e.g. Homebrew's `/opt/homebrew/bin/claude-use` -> its own Cellar keg, and callers need that PATH-visible location, not the dereferenced target). If that directory is *not* on PATH (the Scoop re-exec case above), search PATH for a separately-installed entry sharing our own invoked basename before falling back to the direct candidate.
+ * The algorithm: if the raw candidate is a bare word with no path separator, it can only have been found via PATH lookup in the first place (Node/the OS applies no resolution to it at all), so search PATH ourselves for the first directory containing an executable of that name, reconstructing exactly what the shell already did. Otherwise, resolve it (or the `execPath` fallback) against cwd, then check whether the *resulting directory* is itself on PATH: if so, use it directly (the Homebrew/direct-invocation case — never realpath'd, since a package manager's PATH-visible entry is often a symlink elsewhere, e.g. Homebrew's `/opt/homebrew/bin/claude-use` pointing at its own Cellar keg, and callers need that PATH-visible location, not the dereferenced target). If that directory is *not* on PATH (the Scoop re-exec case above), search PATH for a separately-installed entry sharing our own invoked basename before falling back to the direct candidate.
  */
 export function resolveOwnExecutablePath(env: {
   readonly argv1: string | undefined;

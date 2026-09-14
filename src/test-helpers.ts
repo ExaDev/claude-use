@@ -21,8 +21,13 @@ export interface FakeEntrySpec {
   readonly sizeBytes?: number;
 }
 
+const FAKE_NOW_YEAR = 2026;
+const FAKE_NOW_MONTH_INDEX = 0;
+const FAKE_NOW_DAY = 15;
+const FAKE_NOW_HOUR = 12;
+
 /** Fixed "now" for every test, so no assertion is time-dependent. */
-export const FAKE_NOW_MS = Date.UTC(2026, 0, 15, 12, 0, 0);
+export const FAKE_NOW_MS = Date.UTC(FAKE_NOW_YEAR, FAKE_NOW_MONTH_INDEX, FAKE_NOW_DAY, FAKE_NOW_HOUR, 0, 0);
 
 /** Milliseconds in one day, for writing readable relative mtimes in fixtures. */
 export const DAY_MS = 86_400_000;
@@ -30,7 +35,12 @@ export const DAY_MS = 86_400_000;
 /** A fake `sleep(ms)` for lock/retry tests: never actually sleeps, but records every requested delay so a test can assert on backoff behaviour instead of being a bare no-op. */
 export function fakeSleep(): { readonly sleep: (ms: number) => void; readonly delays: number[] } {
   const delays: number[] = [];
-  return { sleep: (ms: number) => delays.push(ms), delays };
+  return {
+    sleep: (ms: number) => {
+      delays.push(ms);
+    },
+    delays,
+  };
 }
 
 function parentOf(rel: string): string {
