@@ -14,6 +14,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
 const distDir = path.join(rootDir, "dist");
 
+function currentNodeMajor(): string {
+  const [major] = process.versions.node.split(".");
+  if (major === undefined) {
+    throw new Error(`Could not parse a major version from process.versions.node (${process.versions.node}).`);
+  }
+  return major;
+}
+
 async function main(): Promise<void> {
   fs.mkdirSync(distDir, { recursive: true });
   const outfile = path.join(distDir, "gen-schema-core.mjs");
@@ -23,7 +31,7 @@ async function main(): Promise<void> {
     bundle: true,
     platform: "node",
     format: "esm",
-    target: `node${process.versions.node.split(".")[0]}`,
+    target: `node${currentNodeMajor()}`,
     outfile,
     external: ["zod"],
     logLevel: "info",

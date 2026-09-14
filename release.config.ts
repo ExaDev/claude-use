@@ -1,7 +1,7 @@
 import type { Options } from "semantic-release";
 
 /**
- * Runs on `main`. Decides the next version from Conventional Commits (feat -> minor, fix/perf -> patch, a BREAKING CHANGE footer -> major), then creates and pushes the tag plus a chore(release) commit bumping CHANGELOG.md and package.json. @semantic-release/npm runs with npmPublish: false so it only bumps the version field -- actual npm publishing (OIDC trusted publishing), GitHub Release creation, and the Homebrew/Scoop tap updates are this project's own jobs in .github/workflows/ci.yml, not semantic-release plugins, since they need this project's own multi-platform asset list and release notes body rather than @semantic-release/github's generic ones.
+ * Runs on `main`. Decides the next version from Conventional Commits (a `feat` commit bumps minor, `fix`/`perf` bumps patch, a BREAKING CHANGE footer bumps major), then creates and pushes the tag plus a chore(release) commit bumping CHANGELOG.md and package.json. `@semantic-release/npm` runs with npmPublish: false so it only bumps the version field -- actual npm publishing (OIDC trusted publishing), GitHub Release creation, and the Homebrew/Scoop tap updates are this project's own jobs in .github/workflows/ci.yml, not semantic-release plugins, since they need this project's own multi-platform asset list and release notes body rather than `@semantic-release/github`'s generic ones.
  */
 const config: Options = {
   branches: ["main"],
