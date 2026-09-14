@@ -167,7 +167,7 @@ export function setProfileEntries(paths: LayoutPaths, name: string, patch: Reado
 }
 
 /** Merges `patch` into `profile`'s own `launch` object and writes it back. */
-export function setProfileLaunchFlags(paths: LayoutPaths, name: string, patch: LaunchFlags): ConfigProfile {
+export function setProfileLaunchFlags(paths: LayoutPaths, name: string, patch: Readonly<LaunchFlags>): ConfigProfile {
   requireProfileExists(paths, name);
   const existing = readProfile(paths, name) ?? {};
   const mergedLaunch: LaunchFlags = { ...existing.launch, ...patch };
@@ -189,7 +189,7 @@ export function registerProfileCommand(program: Command, paths: LayoutPaths): vo
     .command("create <name>")
     .description("Create a new, empty configuration profile.")
     .option("--extends <names>", "Comma-separated list of profile names this one extends.")
-    .action((name: string, options: { extends?: string }) => {
+    .action((name: string, options: Readonly<{ extends?: string }>) => {
       const extendsList = options.extends !== undefined && options.extends !== "" ? options.extends.split(",") : undefined;
       createProfile(paths, name, extendsList);
       console.log(`Created configuration profile "${name}".`);

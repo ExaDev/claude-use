@@ -63,7 +63,7 @@ describe("directoryRules", () => {
     });
 
     it("throws ConfigValidationError, not a raw ZodError, for a rule set that fails DirectoryRulesSchema", () => {
-      expect(() => writeDirectoryRules(paths, { rules: [{ path: "" }] })).toThrow(ConfigValidationError);
+      expect(() => { writeDirectoryRules(paths, { rules: [{ path: "" }] }); }).toThrow(ConfigValidationError);
     });
 
     it("appends a second rule for a different path", () => {
@@ -103,11 +103,11 @@ describe("directoryRules", () => {
     });
 
     it("throws DirectoryRuleNotFoundError when no rule matches", () => {
-      expect(() => removeDirectoryRule(paths, "~/nonexistent")).toThrow(DirectoryRuleNotFoundError);
+      expect(() => { removeDirectoryRule(paths, "~/nonexistent"); }).toThrow(DirectoryRuleNotFoundError);
     });
 
     it("throws DirectoryRuleNotFoundError when the file does not exist at all", () => {
-      expect(() => removeDirectoryRule(paths, "~/nonexistent")).toThrow(DirectoryRuleNotFoundError);
+      expect(() => { removeDirectoryRule(paths, "~/nonexistent"); }).toThrow(DirectoryRuleNotFoundError);
     });
   });
 });
