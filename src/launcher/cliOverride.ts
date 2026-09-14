@@ -18,7 +18,7 @@ export class InvalidCliEntryKeyError extends CliError {
   }
 }
 
-function toCategoryMap(pairs: Record<string, boolean>): CategoryMap {
+function toCategoryMap(pairs: Readonly<Record<string, boolean>>): CategoryMap {
   const expanded = expandAllCategoryKey(pairs);
   const result: Record<string, boolean> = {};
   for (const [key, value] of Object.entries(expanded)) {
@@ -30,7 +30,7 @@ function toCategoryMap(pairs: Record<string, boolean>): CategoryMap {
   return result;
 }
 
-function toEntries(pairs: Record<string, boolean>): Entries {
+function toEntries(pairs: Readonly<Record<string, boolean>>): Entries {
   for (const key of Object.keys(pairs)) {
     if (!ENTRY_KEY_RE.test(key)) {
       throw new InvalidCliEntryKeyError(key);

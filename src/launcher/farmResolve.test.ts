@@ -9,7 +9,7 @@ const PREVIOUS = `${IDENTITIES_DIR}/.work.previous.crashed`;
 
 /** Always answers with the same fixed choice, regardless of which conflict is asked about. */
 function fixedAnswer(choice: FarmConflictChoice): (conflict: FarmConflict) => Promise<FarmConflictChoice> {
-  return () => Promise.resolve(choice);
+  return async () => Promise.resolve(choice);
 }
 
 describe("resolveFarmConflicts", () => {
@@ -119,7 +119,7 @@ describe("resolveFarmConflicts", () => {
       fs,
       identitiesDir: IDENTITIES_DIR,
       identity: "work",
-      decide: (conflict) => {
+      decide: async (conflict) => {
         seen.push(conflict.previousRoot);
         return Promise.resolve("keep-new");
       },
@@ -143,7 +143,7 @@ describe("resolveFarmConflicts", () => {
       fs,
       identitiesDir: IDENTITIES_DIR,
       identity: "work",
-      decide: (conflict) => Promise.resolve(conflict.previousRoot === previousA ? "skip" : "keep-new"),
+      decide: async (conflict) => Promise.resolve(conflict.previousRoot === previousA ? "skip" : "keep-new"),
     });
 
     expect(result.removed).toEqual([previousB]);
@@ -162,7 +162,7 @@ describe("resolveFarmConflicts", () => {
       identitiesDir: IDENTITIES_DIR,
       identity: "work",
       classification: { defaults: shippedClassification },
-      decide: () => {
+      decide: async () => {
         decideCalls += 1;
         return Promise.resolve("skip");
       },
@@ -190,7 +190,7 @@ describe("resolveFarmConflicts", () => {
       identitiesDir: IDENTITIES_DIR,
       identity: "work",
       classification: { defaults: shippedClassification },
-      decide: (conflict) => {
+      decide: async (conflict) => {
         seen.push(conflict.name);
         return Promise.resolve("skip");
       },

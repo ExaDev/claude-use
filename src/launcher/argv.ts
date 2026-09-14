@@ -46,7 +46,10 @@ export function parseLauncherArgv(argv: readonly string[]): ParsedLauncherArgv {
   const rest: string[] = [];
 
   for (let index = 0; index < remaining.length; index += 1) {
-    const token = remaining[index]!;
+    const token = remaining[index];
+    if (token === undefined) {
+      continue;
+    }
     const matched = matchValuedFlag(token);
     if (matched === undefined) {
       rest.push(token);

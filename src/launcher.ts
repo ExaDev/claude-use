@@ -67,7 +67,7 @@ export interface RunLauncherParams {
 /**
  * Orchestrates one `claude` launch, in order:
  *
- * `CLAUDE_CONFIG_DIR` escape-hatch check -> ambient-credential guard -> identity/config-profile decision -> farm resync -> version discovery -> flag resolution -> extra-flags split -> spawn.
+ * `CLAUDE_CONFIG_DIR` escape-hatch check, then the ambient-credential guard, the identity/config-profile decision, farm resync, version discovery, flag resolution, the extra-flags split, and finally spawn.
  *
  * The farm resync is skipped when `CLAUDE_CONFIG_DIR` was already set (the escape hatch means the user has named a configuration directory explicitly, and claude-use manages neither its contents nor its lifetime) and when no identity resolved at all (a bare launch against plain `~/.claude`, matching the legacy tool's own behaviour). In both cases there is no claude-use-managed farm for a resync to act on.
  */
@@ -117,7 +117,7 @@ export function runLauncher(params: RunLauncherParams): void {
     } catch (error) {
       if (error instanceof IdentityLockBusyError) {
         log.error(error.message);
-        return proc.exit(1);
+        proc.exit(1);
       }
       throw error;
     }
@@ -146,7 +146,7 @@ export function runLauncher(params: RunLauncherParams): void {
   });
   if (!guardResult.ok) {
     log.error(guardResult.message);
-    return proc.exit(1);
+    proc.exit(1);
   }
 
   const configProfileDecision = decideConfigProfile({
@@ -187,7 +187,7 @@ export function runLauncher(params: RunLauncherParams): void {
     } catch (error) {
       if (error instanceof IdentityLockBusyError) {
         log.error(error.message);
-        return proc.exit(1);
+        proc.exit(1);
       }
       throw error;
     }
@@ -202,8 +202,8 @@ export function runLauncher(params: RunLauncherParams): void {
     log.info(
       result.noOp
         ? `claude-use: farm at ${result.farmRoot} already matches the resolved cascade`
-        : `claude-use: farm at ${result.farmRoot} resynced (${result.manifest.links.length} link(s), ` +
-          `${result.manifest.materialised.length} built director(ies)${result.adopted.length === 0 ? "" : `, ${result.adopted.length} adopted into ${farm.claudeHome}`})`,
+        : `claude-use: farm at ${result.farmRoot} resynced (${String(result.manifest.links.length)} link(s), ` +
+          `${String(result.manifest.materialised.length)} built director(ies)${result.adopted.length === 0 ? "" : `, ${String(result.adopted.length)} adopted into ${farm.claudeHome}`})`,
     );
     cascadeLaunch = result.resolved.flattened.launch;
   }

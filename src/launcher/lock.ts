@@ -35,7 +35,7 @@ export class IdentityLockBusyError extends CliError {
   ) {
     super(
       `Another claude-use resync is already running for identity "${identity}"` +
-        (holderPid === undefined ? "" : ` (pid ${holderPid})`) +
+        (holderPid === undefined ? "" : ` (pid ${String(holderPid)})`) +
         `. Its lock at ${lockPath} was still held after the full retry budget; nothing was changed.`,
     );
     this.name = "IdentityLockBusyError";
