@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import * as esbuild from "esbuild";
 
 /**
- * Bundles `src/cli.ts` with esbuild into a single CJS file, then — unless `--bundle-only` is given — invokes the now-stable `node --build-sea=<config>` single command (Node >= v25.5.0) to produce a self-contained single-executable-application binary.
+ * Bundles `src/cli.ts` with esbuild into a single CJS file, then — unless `--bundle-only` is given — invokes the now-stable `node --build-sea=<config>` single command (Node v25.5.0 or later) to produce a self-contained single-executable-application binary.
  *
  * This deliberately does NOT use the older `--experimental-sea-config` + manual `postject` pipeline the README used to describe — `--build-sea` handles bundle-copy, signature removal, blob injection, and re-signing in one step, and postject is not a dependency of this project.
  *
@@ -24,11 +24,19 @@ const rootDir = path.resolve(__dirname, "..");
 const distDir = path.join(rootDir, "dist");
 const bundleFileName = "cli.cjs";
 const seaConfigFileName = "sea-config.json";
+const EXECUTABLE_FILE_MODE = 0o755;
 const outputBinaryName = process.platform === "win32" ? "claude-use-sea.exe" : "claude-use-sea";
+
+// node --build-sea's stable single-command form shipped in this release.
+const MIN_BUILD_SEA_NODE_MAJOR = 25;
+const MIN_BUILD_SEA_NODE_MINOR = 5;
 
 function requireBuildSeaSupport(): void {
   const [major, minor] = process.versions.node.split(".").map((part) => Number.parseInt(part, 10));
-  const supported = major !== undefined && minor !== undefined && (major > 25 || (major === 25 && minor >= 5));
+  const supported =
+    major !== undefined &&
+    minor !== undefined &&
+    (major > MIN_BUILD_SEA_NODE_MAJOR || (major === MIN_BUILD_SEA_NODE_MAJOR && minor >= MIN_BUILD_SEA_NODE_MINOR));
   if (!supported) {
     throw new Error(
       `node --build-sea requires Node >= v25.5.0 (this stable single-command form shipped there); ` +
@@ -50,7 +58,7 @@ async function bundle(): Promise<void> {
     minify: false,
     logLevel: "info",
   });
-  fs.chmodSync(path.join(distDir, bundleFileName), 0o755);
+  fs.chmodSync(path.join(distDir, bundleFileName), EXECUTABLE_FILE_MODE);
 }
 
 function writeSeaConfig(): string {
@@ -103,13 +111,16 @@ function buildSea(seaConfigPath: string): string {
     execFileSync("codesign", ["--sign", "-", outputPath], { stdio: "inherit" });
   }
 
-  fs.chmodSync(outputPath, 0o755);
+  fs.chmodSync(outputPath, EXECUTABLE_FILE_MODE);
   return outputPath;
 }
 
+const BYTES_PER_KIB = 1024;
+const BYTES_PER_MIB = BYTES_PER_KIB * BYTES_PER_KIB;
+
 function reportSize(outputPath: string): void {
   const { size } = fs.statSync(outputPath);
-  const mib = size / (1024 * 1024);
+  const mib = size / BYTES_PER_MIB;
   console.log(`Built ${outputPath} (${mib.toFixed(1)} MiB)`);
 }
 
