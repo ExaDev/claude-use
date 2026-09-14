@@ -30,14 +30,14 @@ function scriptedIdentityPrompts(answers: readonly unknown[]): PromptsPort {
     return value;
   };
   return {
-    select: <Value extends string>(params: SelectParams<Value>): Promise<Value | symbol> => {
+    select: async <Value extends string>(params: SelectParams<Value>): Promise<Value | symbol> => {
       const answer = next();
       if (typeof answer === "symbol") return Promise.resolve(answer);
       const option = params.options.find((o) => o.value === answer);
       if (option === undefined) throw new Error(`scripted select answer not in options: ${String(answer)}`);
       return Promise.resolve(option.value);
     },
-    multiselect: <Value extends string>(params: MultiselectParams<Value>): Promise<readonly Value[] | symbol> => {
+    multiselect: async <Value extends string>(params: MultiselectParams<Value>): Promise<readonly Value[] | symbol> => {
       const answer = next();
       if (typeof answer === "symbol") return Promise.resolve(answer);
       if (!Array.isArray(answer)) throw new Error(`scripted multiselect answer is not an array: ${String(answer)}`);
@@ -49,7 +49,7 @@ function scriptedIdentityPrompts(answers: readonly unknown[]): PromptsPort {
       }
       return Promise.resolve(selected);
     },
-    text: (): Promise<string | symbol> => {
+    text: async (): Promise<string | symbol> => {
       const answer = next();
       if (typeof answer === "symbol") return Promise.resolve(answer);
       if (typeof answer !== "string") throw new Error(`scripted text answer is not a string: ${String(answer)}`);
@@ -110,7 +110,7 @@ describe("identityManager", () => {
 
   describe("useIdentity / readActiveIdentity", () => {
     it("throws IdentityNotFoundError when selecting an identity that was never created", () => {
-      expect(() => useIdentity(paths, "ghost")).toThrow(IdentityNotFoundError);
+      expect(() => { useIdentity(paths, "ghost"); }).toThrow(IdentityNotFoundError);
     });
 
     it("persists the active identity as plain trimmed text", () => {
@@ -224,7 +224,7 @@ describe("identityManager", () => {
       const base = scriptedIdentityPrompts(["create", "skip"]);
       const spying: PromptsPort = {
         ...base,
-        select: (params) => {
+        select: async (params) => {
           selectCalls.push(params);
           return base.select(params);
         },

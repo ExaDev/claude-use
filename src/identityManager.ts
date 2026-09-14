@@ -323,7 +323,7 @@ export function registerIdentityCommand(program: Command, paths: LayoutPaths): v
 
       if (result.autoResolved.length > 0) {
         console.log(
-          `Auto-resolved ${result.autoResolved.length} disposable runtime entr${result.autoResolved.length === 1 ? "y" : "ies"} ` +
+          `Auto-resolved ${String(result.autoResolved.length)} disposable runtime entr${result.autoResolved.length === 1 ? "y" : "ies"} ` +
             `with no prompt (${result.autoResolved.join(", ")}) — per-process/per-machine state, never worth asking about.`,
         );
       }
@@ -337,8 +337,8 @@ export function registerIdentityCommand(program: Command, paths: LayoutPaths): v
         console.log(`  ${conflict.name}: ${conflict.choice}`);
       }
       console.log(
-        `Resolved ${result.resolved.length} conflict(s) — ${result.removed.length} superseded director(ies) fully ` +
-          `cleared, ${result.retained.length} still retained pending a skipped conflict.`,
+        `Resolved ${String(result.resolved.length)} conflict(s) — ${String(result.removed.length)} superseded director(ies) fully ` +
+          `cleared, ${String(result.retained.length)} still retained pending a skipped conflict.`,
       );
     });
 
@@ -400,7 +400,7 @@ export function registerIdentityCommand(program: Command, paths: LayoutPaths): v
     .description("Update an identity's own settings.")
     .option("--allow-ambient-credential", "Allow this identity to launch even with an ambient credential env var set.")
     .option("--no-allow-ambient-credential", "Disallow ambient credential env vars for this identity (the default).")
-    .action((name: string, options: { allowAmbientCredential?: boolean }) => {
+    .action((name: string, options: Readonly<{ allowAmbientCredential?: boolean }>) => {
       if (options.allowAmbientCredential === undefined) {
         console.log("Nothing to change: pass --allow-ambient-credential or --no-allow-ambient-credential.");
         return;
