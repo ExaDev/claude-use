@@ -37,7 +37,7 @@ export function splitOnWildcards(pattern: string): PatternFragment[] {
   while (index < pattern.length) {
     const token = WILDCARD_TOKENS.find((candidate) => pattern.startsWith(candidate, index));
     if (token === undefined) {
-      literal += pattern[index];
+      literal += pattern.charAt(index);
       index += 1;
       continue;
     }
@@ -82,7 +82,7 @@ export function expandHome(fragment: string, home: string): string {
  *
  * Order matters and is fixed: expand `~` to the real home first (encoding `~` would turn it into `-` and lose the reference), reject anything not home-or-root-rooted, then split on wildcard tokens and encode only the literal runs.
  */
-export function encodeProjectPattern(fragment: string, options: { home: string }): string {
+export function encodeProjectPattern(fragment: string, options: Readonly<{ home: string }>): string {
   const expanded = expandHome(fragment, options.home);
   if (!expanded.startsWith("/")) {
     throw new UnrootedProjectPathError(fragment);
@@ -152,7 +152,8 @@ export function detectEncodingAmbiguity(
     const lossy = lossyCharacters(literalText);
     if (lossy.length > 0) {
       const matched = options.existingNames?.filter((name) => name === encoded).length;
-      const suffix = matched === undefined ? "" : ` It currently matches ${matched} existing project directory name(s).`;
+      const suffix =
+        matched === undefined ? "" : ` It currently matches ${String(matched)} existing project directory name(s).`;
       ambiguities.push({
         fragment,
         encoded,

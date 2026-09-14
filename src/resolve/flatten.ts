@@ -17,7 +17,7 @@ function unpackEntryValue(value: EntryValue): { value: boolean; when?: CompiledR
  *
  * A key written under the `secret/` prefix is rejected outright with its own diagnostic and contributes no rule at all: `secret` is the one category no layer may open, and a deliberate attempt to name a secret path deserves a clearer error than the silent neutralisation the resolve-time floor check applies to a glob that reaches one incidentally.
  */
-export function flattenLayers(layers: readonly Layer[], options: { home: string }): FlattenedCascade {
+export function flattenLayers(layers: readonly Layer[], options: Readonly<{ home: string }>): FlattenedCascade {
   const categories = new Map<OverridableCategory, boolean>();
   const rules = new Map<string, CompiledRule>();
   const launch: { skipPermissions?: boolean; remoteControl?: boolean } = {};
@@ -26,9 +26,6 @@ export function flattenLayers(layers: readonly Layer[], options: { home: string 
   for (const layer of layers) {
     if (layer.categories !== undefined) {
       for (const [name, value] of Object.entries(layer.categories)) {
-        if (value === undefined) {
-          continue;
-        }
         if (!isOverridableCategory(name)) {
           continue;
         }

@@ -9,7 +9,7 @@ import { buildChildIndex, planFarm, type FarmPlan } from "./plan";
 import type { EntryFacts, Layer } from "./types";
 
 function layer(id: number, overrides: Partial<Layer> = {}): Layer {
-  return { id, kind: "config-profile", source: `layer-${id}`, ...overrides };
+  return { id, kind: "config-profile", source: `layer-${String(id)}`, ...overrides };
 }
 
 function classificationFor(facts: EntryFacts): ReadonlyMap<string, CategoryName | null> {
@@ -23,7 +23,7 @@ function classificationFor(facts: EntryFacts): ReadonlyMap<string, CategoryName 
   return classifyEntries([...names], { defaults: shippedClassification }).classification;
 }
 
-function plan(layers: Layer[], facts: EntryFacts): FarmPlan {
+function plan(layers: readonly Layer[], facts: EntryFacts): FarmPlan {
   const flattened = flattenLayers(layers, { home: FAKE_HOME });
   const { decisions } = resolveAll({ flattened, facts, classification: classificationFor(facts) });
   return planFarm({ facts, decisions, flattened });
@@ -132,8 +132,10 @@ describe("conditional rules force materialisation", () => {
   });
 
   it("materialises even when the conditional rule's condition currently fails everywhere", () => {
+    // Well outside the 90-day newerThan window the rule checks against.
+    const ancientAgeDays = 400;
     const facts = makeFacts({
-      "projects/-home-testuser-work-a/session.jsonl": { mtimeMs: FAKE_NOW_MS - 400 * DAY_MS },
+      "projects/-home-testuser-work-a/session.jsonl": { mtimeMs: FAKE_NOW_MS - ancientAgeDays * DAY_MS },
     });
     const layers = [layer(0, { entries: { "history/projects/~/work/*": { value: true, when: { newerThan: "90d" } } } })];
     expect(kindOf(plan(layers, facts), "projects")).toBe("materialise");

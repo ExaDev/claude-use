@@ -115,10 +115,11 @@ describe("missing profiles", () => {
 
 describe("profileLayers", () => {
   it("assigns strictly ascending layer ids starting from the given index", () => {
+    const startId = 5;
     const load = loader({ base: {}, work: { extends: ["base"] } });
-    const { layers, nextId } = profileLayers("work", load, 5);
-    expect(layers.map((layer) => layer.id)).toEqual([5, 6]);
-    expect(nextId).toBe(7);
+    const { layers, nextId } = profileLayers("work", load, startId);
+    expect(layers.map((layer) => layer.id)).toEqual([startId, startId + 1]);
+    expect(nextId).toBe(startId + 2);
   });
 
   it("carries each profile's categories, entries, entry order, and launch flags onto its layer", () => {

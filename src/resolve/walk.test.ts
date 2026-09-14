@@ -74,7 +74,19 @@ describe("assembleCascade layer ordering", () => {
       "portable",
       "cli-override",
     ]);
-    expect(assembled.layers.map((layer) => layer.id)).toEqual([0, 1, 2, 3, 4]);
+    // Ordinal layer ids, assigned in cascade order: global config, the two-deep base-then-directory config-profile chain, the portable file, then the CLI override.
+    const globalLayerId = 0;
+    const baseProfileLayerId = 1;
+    const directoryProfileLayerId = 2;
+    const portableLayerId = 3;
+    const cliOverrideLayerId = 4;
+    expect(assembled.layers.map((layer) => layer.id)).toEqual([
+      globalLayerId,
+      baseProfileLayerId,
+      directoryProfileLayerId,
+      portableLayerId,
+      cliOverrideLayerId,
+    ]);
   });
 
   it("folds a level's three sources most-personal-last: committed file, then this user's rules, then the local override", () => {

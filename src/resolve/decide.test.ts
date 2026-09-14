@@ -8,7 +8,7 @@ import { flattenLayers } from "./flatten";
 import type { EntryFacts, Layer } from "./types";
 
 function layer(id: number, overrides: Partial<Layer> = {}): Layer {
-  return { id, kind: "config-profile", source: `layer-${id}`, ...overrides };
+  return { id, kind: "config-profile", source: `layer-${String(id)}`, ...overrides };
 }
 
 function classificationFor(facts: EntryFacts): ReadonlyMap<string, CategoryName | null> {
@@ -22,7 +22,7 @@ function classificationFor(facts: EntryFacts): ReadonlyMap<string, CategoryName 
   return classifyEntries([...names], { defaults: shippedClassification }).classification;
 }
 
-function decide(relPath: string, layers: Layer[], facts: EntryFacts) {
+function decide(relPath: string, layers: readonly Layer[], facts: EntryFacts) {
   const flattened = flattenLayers(layers, { home: FAKE_HOME });
   return resolveEntry(relPath, { flattened, facts, classification: classificationFor(facts) });
 }
@@ -81,9 +81,10 @@ describe("entries beat categories", () => {
   const facts = makeFacts({ "skills/commit/SKILL.md": true, "skills/other/SKILL.md": true });
 
   it("lets a shallow layer's specific entry survive a later, deeper layer's blanket category flip", () => {
+    const DEEPER_LAYER_ID = 3;
     const layers = [
       layer(0, { entries: { "knowledge/skills/commit": true } }),
-      layer(3, { categories: { knowledge: false } }),
+      layer(DEEPER_LAYER_ID, { categories: { knowledge: false } }),
     ];
     expect(decide("skills/commit", layers, facts).decision.shared).toBe(true);
     expect(decide("skills/other", layers, facts).decision.shared).toBe(false);
@@ -139,9 +140,12 @@ describe("the corrected comparator in practice", () => {
   });
 });
 
+// Comfortably outside the 90-day-scale windows this describe block's conditions check against.
+const STALE_AGE_DAYS = 200;
+
 describe("failing conditions", () => {
   const facts = makeFacts({
-    "projects/-home-testuser-work-acme/session.jsonl": { mtimeMs: FAKE_NOW_MS - 200 * DAY_MS, sizeBytes: 10 },
+    "projects/-home-testuser-work-acme/session.jsonl": { mtimeMs: FAKE_NOW_MS - STALE_AGE_DAYS * DAY_MS, sizeBytes: 10 },
     "projects/-home-testuser-work-fresh/session.jsonl": { mtimeMs: FAKE_NOW_MS - 1 * DAY_MS, sizeBytes: 10 },
   });
 
@@ -198,7 +202,8 @@ describe("failing conditions", () => {
 
 describe("selectRule", () => {
   it("returns no rule and the full elimination list when every candidate's condition fails", () => {
-    const facts = makeFacts({ "skills/commit/SKILL.md": { mtimeMs: FAKE_NOW_MS - 400 * DAY_MS } });
+    const ANCIENT_AGE_DAYS = 400;
+    const facts = makeFacts({ "skills/commit/SKILL.md": { mtimeMs: FAKE_NOW_MS - ANCIENT_AGE_DAYS * DAY_MS } });
     const flattened = flattenLayers(
       [layer(0, { entries: { "knowledge/skills/*": { value: true, when: { newerThan: "1d" } } } })],
       { home: FAKE_HOME },
