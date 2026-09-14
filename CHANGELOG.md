@@ -1,3 +1,17 @@
+## [2.4.1](https://github.com/ExaDev/claude-use/compare/v2.4.0...v2.4.1) (2026-09-14)
+
+### Bug Fixes
+
+* **lint:** resolve @exadev/eslint-config fallout in cli/claudeShim ([8307bf1](https://github.com/ExaDev/claude-use/commit/8307bf1a490d656a924a63f1c21e4cfcf250aaa7))
+* **lint:** resolve @exadev/eslint-config fallout in configure/rules ([a4baf9d](https://github.com/ExaDev/claude-use/commit/a4baf9d02178b8235eab1758790305028210a432))
+* **lint:** resolve @exadev/eslint-config fallout in doctor/identity ([8beeff5](https://github.com/ExaDev/claude-use/commit/8beeff52ac758d2feb69451765245fcdf95cf88e))
+* **lint:** resolve @exadev/eslint-config fallout in remaining src/* ([81dbd90](https://github.com/ExaDev/claude-use/commit/81dbd9077ed7592094e0d0be931df4f32158f927))
+* **lint:** resolve @exadev/eslint-config fallout in scripts/release config ([ff353d8](https://github.com/ExaDev/claude-use/commit/ff353d8ecb41fe5fd40567253b8be9a25871f8c6))
+* **lint:** resolve @exadev/eslint-config fallout in src/config ([17a0c36](https://github.com/ExaDev/claude-use/commit/17a0c360e3ea70fa5c7434d3b65a113390e68273))
+* **lint:** resolve @exadev/eslint-config fallout in src/launcher ([81fe0a8](https://github.com/ExaDev/claude-use/commit/81fe0a84589e2cd1be051461039944a8710eb709))
+* **lint:** resolve @exadev/eslint-config fallout in src/resolve ([98a7e67](https://github.com/ExaDev/claude-use/commit/98a7e6777e812136b5408ce73294a453c6f80f8a))
+* repair NUL-byte corruption in dedupeDiagnostics's key template ([341185d](https://github.com/ExaDev/claude-use/commit/341185d5547fb2b9b7a9a549c0f8078a08c7177a))
+
 ## [2.4.0](https://github.com/ExaDev/claude-use/compare/v2.3.1...v2.4.0) (2026-09-12)
 
 ### Features
