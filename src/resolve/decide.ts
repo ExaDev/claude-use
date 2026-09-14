@@ -175,8 +175,8 @@ function reportOverriddenExactKeys(winner: CompiledRule, params: DecideParams, r
       code: "EXACT_ENTRY_OVERRIDDEN_BY_LATER_GLOB",
       severity: "info",
       message:
-        `For "${relPath}", the exact key "${candidate.rawKey}" from layer ${candidate.layer} is overridden by the ` +
-        `glob "${winner.rawKey}" from the later layer ${winner.layer}. A later layer always wins, so a local rule ` +
+        `For "${relPath}", the exact key "${candidate.rawKey}" from layer ${String(candidate.layer)} is overridden by the ` +
+        `glob "${winner.rawKey}" from the later layer ${String(winner.layer)}. A later layer always wins, so a local rule ` +
         `can only ever tighten what an earlier, shared configuration opened.`,
       subject: relPath,
       layer: winner.layer,
@@ -210,7 +210,7 @@ function dedupeDiagnostics(diagnostics: readonly Diagnostic[]): Diagnostic[] {
   const seen = new Set<string>();
   const unique: Diagnostic[] = [];
   for (const diagnostic of diagnostics) {
-    const key = `${diagnostic.code} ${diagnostic.subject ?? ""} ${diagnostic.layer ?? ""} ${diagnostic.message}`;
+    const key = `${diagnostic.code} ${diagnostic.subject ?? ""} ${diagnostic.layer === undefined ? "" : String(diagnostic.layer)} ${diagnostic.message}`;
     if (seen.has(key)) {
       continue;
     }
