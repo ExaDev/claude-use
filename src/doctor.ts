@@ -420,6 +420,8 @@ function severityPrefix(severity: DoctorSeverity): string {
       return "[WARN]";
     case "fail":
       return "[FAIL]";
+    default:
+      return severity satisfies never;
   }
 }
 
@@ -438,7 +440,7 @@ export function formatDoctorReport(report: DoctorReport): string[] {
     }
   }
   const failCount = report.findings.filter((finding) => finding.severity === "fail").length;
-  lines.push("", report.ok ? "All checks passed." : `${failCount} check(s) failed.`);
+  lines.push("", report.ok ? "All checks passed." : `${String(failCount)} check(s) failed.`);
   return lines;
 }
 

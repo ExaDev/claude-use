@@ -249,7 +249,7 @@ describe("runDoctor: config-profile extends chain", () => {
       }),
     );
     const failures = findingsFor(report, "config-profile").filter((finding) => finding.severity === "fail");
-    expect(failures.map((finding) => finding.subject).sort()).toEqual(["a", "b"]);
+    expect(failures.map((finding) => finding.subject).sort((a, b) => (a ?? "").localeCompare(b ?? ""))).toEqual(["a", "b"]);
     expect(failures.every((finding) => finding.message.includes("Circular"))).toBe(true);
   });
 
@@ -438,19 +438,17 @@ describe("runDoctor: aggregation contract", () => {
       binaryDiscovery: { ok: false, message: "not found" },
     });
 
-    let report: ReturnType<typeof runDoctor> | undefined;
-    expect(() => {
-      report = runDoctor(params);
-    }).not.toThrow();
+    // A genuine throw here fails the test on its own -- no separate not.toThrow() wrapper needed, which also avoids report ever being possibly-undefined below.
+    const report = runDoctor(params);
 
-    expect(report?.ok).toBe(false);
-    expect(findingsFor(report!, "identity")[0]?.severity).toBe("fail");
-    expect(findingsFor(report!, "config-profile")[0]?.severity).toBe("fail");
-    expect(findingsFor(report!, "directory-rules")[0]?.severity).toBe("fail");
-    expect(findingsFor(report!, "global-config")[0]?.severity).toBe("fail");
-    expect(findingsFor(report!, "categories-local")[0]?.severity).toBe("fail");
-    expect(findingsFor(report!, "active-identity")[0]?.severity).toBe("fail");
-    expect(findingsFor(report!, "binary-discovery")[0]?.severity).toBe("fail");
+    expect(report.ok).toBe(false);
+    expect(findingsFor(report, "identity")[0]?.severity).toBe("fail");
+    expect(findingsFor(report, "config-profile")[0]?.severity).toBe("fail");
+    expect(findingsFor(report, "directory-rules")[0]?.severity).toBe("fail");
+    expect(findingsFor(report, "global-config")[0]?.severity).toBe("fail");
+    expect(findingsFor(report, "categories-local")[0]?.severity).toBe("fail");
+    expect(findingsFor(report, "active-identity")[0]?.severity).toBe("fail");
+    expect(findingsFor(report, "binary-discovery")[0]?.severity).toBe("fail");
   });
 
   it("is ok=false iff at least one finding is fail, regardless of any number of warn findings", () => {
