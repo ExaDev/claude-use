@@ -192,14 +192,13 @@ describe("DirectoryRuleSchema", () => {
 
 describe("DirectoryRulesSchema", () => {
   it("parses the README's own example rules file", () => {
-    const parsed = DirectoryRulesSchema.parse({
-      rules: [
-        { path: "~/work", configProfile: "work-default" },
-        { path: "~/work/clients", configProfile: "client-strict", identity: "work" },
-        { path: "~/work/clients/example", entries: { "knowledge/skills/example-notes": true } },
-      ],
-    });
-    expect(parsed.rules).toHaveLength(3);
+    const rules = [
+      { path: "~/work", configProfile: "work-default" },
+      { path: "~/work/clients", configProfile: "client-strict", identity: "work" },
+      { path: "~/work/clients/example", entries: { "knowledge/skills/example-notes": true } },
+    ];
+    const parsed = DirectoryRulesSchema.parse({ rules });
+    expect(parsed.rules).toHaveLength(rules.length);
   });
 });
 

@@ -80,7 +80,7 @@ describe("store.ts", () => {
         },
       };
 
-      expect(() => writeJsonAtomic(filePath, { name: "should-never-land" }, crashingRenameFs)).toThrow(
+      expect(() => { writeJsonAtomic(filePath, { name: "should-never-land" }, crashingRenameFs); }).toThrow(
         "simulated crash",
       );
 
@@ -104,7 +104,11 @@ describe("store.ts", () => {
       };
       writeJsonAtomic(filePath, { name: "acme" }, observingFs);
       expect(seenTempPaths).toHaveLength(1);
-      expect(path.dirname(seenTempPaths[0]!)).toBe(dir);
+      const [tempPath] = seenTempPaths;
+      if (tempPath === undefined) {
+        throw new Error("Expected at least one observed temp path.");
+      }
+      expect(path.dirname(tempPath)).toBe(dir);
     });
 
     it("writeTextAtomic writes plain text, not JSON-wrapped", () => {
