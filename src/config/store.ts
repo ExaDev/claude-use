@@ -92,7 +92,7 @@ export function readJson<S extends z.ZodType>(
 export function writeTextAtomic(filePath: string, contents: string, storeFs: StoreFs = nodeStoreFs): void {
   const dir = path.dirname(filePath);
   storeFs.mkdirSync(dir);
-  const tempPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${randomUUID()}.tmp`);
+  const tempPath = path.join(dir, `.${path.basename(filePath)}.${String(process.pid)}.${randomUUID()}.tmp`);
   storeFs.writeFileUtf8(tempPath, contents);
   try {
     storeFs.renameSync(tempPath, filePath);
@@ -124,7 +124,7 @@ export interface ApplyPatchOptions<T> {
 export function applyPatch<S extends z.ZodType>(
   filePath: string,
   schema: S,
-  patch: Partial<z.infer<S>>,
+  patch: Readonly<Partial<z.infer<S>>>,
   options: ApplyPatchOptions<z.infer<S>> = {},
 ): z.infer<S> {
   const storeFs = options.storeFs ?? nodeStoreFs;

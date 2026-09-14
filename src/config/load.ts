@@ -70,7 +70,7 @@ export class ConfigValidationError extends CliError {
 export type ConfigFileReader = (filepath: string) => unknown;
 
 /** A cosmiconfig-backed reader: loads and parses one file by path, returning undefined when it is missing or empty. */
-export function cosmiconfigReader(explorer: PublicExplorerSync = createExplorer()): ConfigFileReader {
+export function cosmiconfigReader(explorer: Readonly<PublicExplorerSync> = createExplorer()): ConfigFileReader {
   return (filepath: string): unknown => {
     let result;
     try {
