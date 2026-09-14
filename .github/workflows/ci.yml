@@ -529,7 +529,7 @@ jobs:
 
       # Generate schema/*.schema.json fresh (it's already committed, but regenerating here keeps the release build honest — see the CI drift guard in the typecheck job above) then stamp $id to this tag's own version-pinned release URL. This is deliberately distinct from install.sh's unpinned releases/latest/download/... URL: a schema an editor references long-term must stay put at whatever version it was written against.
       - run: pnpm schema
-      - run: node scripts/stamp-schema-ids.mjs "${{ needs.semantic-release.outputs.tag }}"
+      - run: node scripts/stamp-schema-ids.mts "${{ needs.semantic-release.outputs.tag }}"
 
       - uses: actions/download-artifact@v8
         with:

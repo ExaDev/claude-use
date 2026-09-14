@@ -43,7 +43,7 @@ function main(): void {
 
   for (const [name, schema] of Object.entries(schemas)) {
     const jsonSchema = z.toJSONSchema(schema, { io: "input" });
-    // A placeholder $id, later rewritten to a version-pinned GitHub Release asset URL by scripts/stamp-schema-ids.mjs at publish time — never left pointing at nothing, and never guessed at a real tag here, since this script has no notion of a release tag.
+    // A placeholder $id, later rewritten to a version-pinned GitHub Release asset URL by scripts/stamp-schema-ids.mts at publish time — never left pointing at nothing, and never guessed at a real tag here, since this script has no notion of a release tag.
     const withId = { $id: `https://github.com/ExaDev/claude-use/schema/${name}.schema.json`, ...jsonSchema };
     const outPath = path.join(outDir, `${name}.schema.json`);
     fs.writeFileSync(outPath, `${JSON.stringify(withId, null, 2)}\n`);

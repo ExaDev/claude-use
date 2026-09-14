@@ -530,7 +530,7 @@ scripts/
   build.mts                # esbuild bundle -> node --build-sea=<config> (see Build (Node SEA) below); --bundle-only stops after the bundle, for npm publishing
   gen-schema.mts            # z.toJSONSchema() per exported schema -> schema/*.schema.json
   gen-schema-core.ts        # shared schema-generation logic used by gen-schema.mts
-  stamp-schema-ids.mjs      # rewrites $id to the real version-pinned release URL at publish time
+  stamp-schema-ids.mts      # rewrites $id to the real version-pinned release URL at publish time
 .github/workflows/
   ci.yml                    # one workflow: check (every push/PR) plus the whole release pipeline, gated to
                              # tag pushes only — five platform builds, npm publish, GitHub Release, and the
