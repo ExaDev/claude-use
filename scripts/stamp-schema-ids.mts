@@ -10,14 +10,18 @@ import { fileURLToPath } from "node:url";
  *
  * Run at publish time only (from `release.yml`, right before the schema files are uploaded as release assets), never as part of `pnpm schema` — `scripts/gen-schema.mts` writes a placeholder `$id` with no notion of a release tag, and this script's rewrite is a separate, deliberate step layered on top of that output.
  *
- * Usage: node scripts/stamp-schema-ids.mjs <tag> The tag may also come from the `GITHUB_REF_NAME` environment variable (as GitHub Actions sets it for a tag-triggered workflow run), used when no argv tag is given.
+ * Usage: node scripts/stamp-schema-ids.mts <tag> The tag may also come from the `GITHUB_REF_NAME` environment variable (as GitHub Actions sets it for a tag-triggered workflow run), used when no argv tag is given.
  */
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
 const schemaDir = path.join(rootDir, "schema");
 
-function resolveTag() {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function resolveTag(): string {
   const argTag = process.argv[2];
   if (argTag !== undefined && argTag.length > 0) {
     return argTag;
@@ -27,11 +31,11 @@ function resolveTag() {
     return envTag;
   }
   throw new Error(
-    "No release tag given. Pass one as the first argument (node scripts/stamp-schema-ids.mjs v1.2.3) or set GITHUB_REF_NAME.",
+    "No release tag given. Pass one as the first argument (node scripts/stamp-schema-ids.mts v1.2.3) or set GITHUB_REF_NAME.",
   );
 }
 
-function main() {
+function main(): void {
   const tag = resolveTag();
   const files = fs.readdirSync(schemaDir).filter((name) => name.endsWith(".schema.json"));
   if (files.length === 0) {
@@ -41,13 +45,14 @@ function main() {
   for (const file of files) {
     const filePath = path.join(schemaDir, file);
     const raw = fs.readFileSync(filePath, "utf8");
-    const parsed = JSON.parse(raw);
-    const stamped = {
-      ...parsed,
-      $id: `https://github.com/ExaDev/claude-use/releases/download/${tag}/${file}`,
-    };
+    const parsed: unknown = JSON.parse(raw);
+    if (!isRecord(parsed)) {
+      throw new Error(`${filePath} does not contain a JSON object at its top level.`);
+    }
+    const id = `https://github.com/ExaDev/claude-use/releases/download/${tag}/${file}`;
+    const stamped = { ...parsed, $id: id };
     fs.writeFileSync(filePath, `${JSON.stringify(stamped, null, 2)}\n`);
-    console.log(`Stamped ${file} -> ${stamped.$id}`);
+    console.log(`Stamped ${file} -> ${id}`);
   }
 }
 
