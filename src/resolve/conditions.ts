@@ -21,8 +21,11 @@ export function parseDuration(value: string): number {
     throw new Error(`"${value}" is not a valid duration. Expected a count followed by ms, s, m, h, d, or w.`);
   }
   const [, count, unit] = parts;
-  const multiplier = MILLISECONDS_PER_UNIT[unit!];
-  if (count === undefined || multiplier === undefined) {
+  if (count === undefined || unit === undefined) {
+    throw new Error(`"${value}" is not a valid duration.`);
+  }
+  const multiplier = MILLISECONDS_PER_UNIT[unit];
+  if (multiplier === undefined) {
     throw new Error(`"${value}" is not a valid duration.`);
   }
   return Number(count) * multiplier;

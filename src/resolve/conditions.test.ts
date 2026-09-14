@@ -6,6 +6,13 @@ import type { EntryFact } from "./types";
 
 const baseContext: ConditionContext = { nowMs: FAKE_NOW_MS, env: {} };
 
+const HALF_SECOND_MS = 500;
+const FORTY_FIVE_SECONDS_MS = 45_000;
+const THIRTY_MINUTES_MS = 1_800_000;
+const TWELVE_HOURS_MS = 43_200_000;
+const DAYS_PER_WEEK = 7;
+const NINETY = 90;
+
 function fact(overrides: Partial<EntryFact>): EntryFact {
   return {
     relPath: "projects/-a-b",
@@ -21,12 +28,12 @@ function fact(overrides: Partial<EntryFact>): EntryFact {
 
 describe("parseDuration", () => {
   it.each([
-    ["500ms", 500],
-    ["45s", 45_000],
-    ["30m", 1_800_000],
-    ["12h", 43_200_000],
-    ["90d", 90 * DAY_MS],
-    ["2w", 2 * 7 * DAY_MS],
+    ["500ms", HALF_SECOND_MS],
+    ["45s", FORTY_FIVE_SECONDS_MS],
+    ["30m", THIRTY_MINUTES_MS],
+    ["12h", TWELVE_HOURS_MS],
+    ["90d", NINETY * DAY_MS],
+    ["2w", 2 * DAYS_PER_WEEK * DAY_MS],
     ["0d", 0],
   ])("parses %s as %d ms", (value, expected) => {
     expect(parseDuration(value)).toBe(expected);
@@ -92,9 +99,12 @@ describe("evaluateWhen", () => {
   });
 });
 
+// Comfortably outside the 90-day window every newerThan/olderThan test below checks against.
+const STALE_AGE_DAYS = 200;
+
 describe("newerThan and olderThan", () => {
   const fresh = fact({ latestMtimeMs: FAKE_NOW_MS - 1 * DAY_MS });
-  const stale = fact({ latestMtimeMs: FAKE_NOW_MS - 200 * DAY_MS });
+  const stale = fact({ latestMtimeMs: FAKE_NOW_MS - STALE_AGE_DAYS * DAY_MS });
 
   it("includes a fresh entry and excludes a stale one under the same window", () => {
     expect(evaluateWhen({ newerThan: "90d" }, { ...baseContext, fact: fresh }).passed).toBe(true);
@@ -110,15 +120,18 @@ describe("newerThan and olderThan", () => {
   });
 });
 
+// Well outside the 90-day newerThan window the "reads the subtree" tests check against -- the whole point of the test is that this ancient directory-own mtime must not be what evaluateWhen sees.
+const ANCIENT_DIR_MTIME_AGE_DAYS = 400;
+
 describe("directory-scoped conditions read the subtree, not the directory's own inode", () => {
   it("uses the subtree's most recent mtime for newerThan", () => {
     // The directory's own mtime is ancient; a file three levels down was written today. A naive stat of the directory itself would wrongly conclude the whole subtree is stale.
     const facts = makeFacts({
-      "projects/-a-b": { dir: true, mtimeMs: FAKE_NOW_MS - 400 * DAY_MS },
+      "projects/-a-b": { dir: true, mtimeMs: FAKE_NOW_MS - ANCIENT_DIR_MTIME_AGE_DAYS * DAY_MS },
       "projects/-a-b/nested/session.jsonl": { mtimeMs: FAKE_NOW_MS - 1 * DAY_MS, sizeBytes: 10 },
     });
     const directory = facts.entries.get("projects/-a-b");
-    expect(directory?.mtimeMs).toBe(FAKE_NOW_MS - 400 * DAY_MS);
+    expect(directory?.mtimeMs).toBe(FAKE_NOW_MS - ANCIENT_DIR_MTIME_AGE_DAYS * DAY_MS);
     expect(directory?.latestMtimeMs).toBe(FAKE_NOW_MS - 1 * DAY_MS);
     expect(evaluateWhen({ newerThan: "90d" }, { ...baseContext, ...(directory === undefined ? {} : { fact: directory }) }).passed).toBe(
       true,
@@ -126,14 +139,17 @@ describe("directory-scoped conditions read the subtree, not the directory's own 
   });
 
   it("uses the subtree's recursive total size for maxSizeBytes", () => {
+    const dirOwnSizeBytes = 4_096;
+    const fileOneSizeBytes = 5_000;
+    const fileTwoSizeBytes = 6_000;
     const facts = makeFacts({
-      "projects/-a-b": { dir: true, sizeBytes: 4096 },
-      "projects/-a-b/one.jsonl": { sizeBytes: 5_000 },
-      "projects/-a-b/two.jsonl": { sizeBytes: 6_000 },
+      "projects/-a-b": { dir: true, sizeBytes: dirOwnSizeBytes },
+      "projects/-a-b/one.jsonl": { sizeBytes: fileOneSizeBytes },
+      "projects/-a-b/two.jsonl": { sizeBytes: fileTwoSizeBytes },
     });
     const directory = facts.entries.get("projects/-a-b");
-    expect(directory?.sizeBytes).toBe(4096);
-    expect(directory?.totalSizeBytes).toBe(15_096);
+    expect(directory?.sizeBytes).toBe(dirOwnSizeBytes);
+    expect(directory?.totalSizeBytes).toBe(dirOwnSizeBytes + fileOneSizeBytes + fileTwoSizeBytes);
     const context = { ...baseContext, ...(directory === undefined ? {} : { fact: directory }) };
     expect(evaluateWhen({ maxSizeBytes: 10_000 }, context).passed).toBe(false);
     expect(evaluateWhen({ maxSizeBytes: 20_000 }, context).passed).toBe(true);

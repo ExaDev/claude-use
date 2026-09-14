@@ -5,7 +5,7 @@ import { flattenLayers, matchingRules } from "./flatten";
 import type { Layer } from "./types";
 
 function layer(id: number, overrides: Partial<Layer> = {}): Layer {
-  return { id, kind: "config-profile", source: `layer-${id}`, ...overrides };
+  return { id, kind: "config-profile", source: `layer-${String(id)}`, ...overrides };
 }
 
 describe("phase one: categories", () => {
@@ -48,13 +48,14 @@ describe("phase one: entries", () => {
   });
 
   it("records each rule's own layer and ordinal, which is what lets phase two tell same-layer from cross-layer", () => {
+    const layerId = 3;
     const flattened = flattenLayers(
-      [layer(3, { entries: { "knowledge/skills/a": true, "knowledge/skills/b": false } })],
+      [layer(layerId, { entries: { "knowledge/skills/a": true, "knowledge/skills/b": false } })],
       { home: FAKE_HOME },
     );
     expect(flattened.rules.get("skills/a")?.ordinal).toBe(0);
     expect(flattened.rules.get("skills/b")?.ordinal).toBe(1);
-    expect(flattened.rules.get("skills/b")?.layer).toBe(3);
+    expect(flattened.rules.get("skills/b")?.layer).toBe(layerId);
   });
 
   it("uses the explicitly captured entry order rather than whatever order the validated object happens to have", () => {

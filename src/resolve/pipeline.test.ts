@@ -16,6 +16,9 @@ function loader(profiles: Readonly<Record<string, ConfigProfile>>): ProfileLoade
   };
 }
 
+// Comfortably outside the 90-day newerThan window the pipeline tests below check against.
+const STALE_SESSION_AGE_DAYS = 200;
+
 /** A realistic-shaped `~/.claude` fact manifest: knowledge, settings, history, runtime, and secrets side by side. */
 function realisticFacts(overrides: Partial<Omit<EntryFacts, "entries">> = {}): EntryFacts {
   return makeFacts(
@@ -29,7 +32,10 @@ function realisticFacts(overrides: Partial<Omit<EntryFacts, "entries">> = {}): E
       "settings.json": true,
       "shell-snapshots/snap.sh": true,
       "projects/-home-testuser-work-clients-acme/session.jsonl": { mtimeMs: FAKE_NOW_MS - 2 * DAY_MS, sizeBytes: 100 },
-      "projects/-home-testuser-work-clients-widget/session.jsonl": { mtimeMs: FAKE_NOW_MS - 200 * DAY_MS, sizeBytes: 100 },
+      "projects/-home-testuser-work-clients-widget/session.jsonl": {
+        mtimeMs: FAKE_NOW_MS - STALE_SESSION_AGE_DAYS * DAY_MS,
+        sizeBytes: 100,
+      },
     },
     overrides,
   );

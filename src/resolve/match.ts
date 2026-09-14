@@ -53,7 +53,7 @@ export class EntryKeyError extends CliError {
  *
  * Every key is `<category>/<real-relative-path>`, so the category prefix is stripped and the remainder kept as written — with one deliberately narrow exception. Anything written after the literal `history/projects/` prefix is a real absolute working directory (optionally globbed), not a literal child directory name, because that directory's only real children are Claude Code's own encoded names and there is nothing else meaningful to reference there. Those fragments get `~`-expanded and forward-encoded; every other key in the whole design is a plain literal path or an ordinary glob over one, matched exactly as written.
  */
-export function canonicaliseEntryKey(key: string, options: { home: string }): CanonicalKey {
+export function canonicaliseEntryKey(key: string, options: Readonly<{ home: string }>): CanonicalKey {
   const separator = key.indexOf("/");
   if (separator <= 0) {
     throw new EntryKeyError(key, `Entry key "${key}" has no "<category>/" prefix.`, "malformed");
