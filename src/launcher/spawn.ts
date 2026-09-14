@@ -12,16 +12,18 @@ export interface SpawnClaudeParams {
   readonly proc: ProcPort;
 }
 
+// The conventional shell exit-code offset for a signal-terminated process (matching what a real shell's `exec` would report): 128 plus the signal's own number.
+const SIGNAL_EXIT_CODE_OFFSET = 128;
+
 /**
- * Derives the exit code to propagate from a completed `spawnSync` result: the child's own exit status when it exited normally, or the conventional `128 + signal number` when it was terminated by a signal (matching what a real shell's `exec` would report), or `1` as a last resort when the result carries neither.
+ * Derives the exit code to propagate from a completed `spawnSync` result: the child's own exit status when it exited normally, or the conventional `128 + signal number` when it was terminated by a signal, or `1` as a last resort when the result carries neither. `os.constants.signals` is a closed mapping over every `NodeJS.Signals` name to its numeric value, so indexing it with a non-null `result.signal` is always defined -- confirmed directly, not merely assumed, since the earlier defensive `undefined` fallback here was itself flagged as unreachable.
  */
 function exitCodeFor(result: SpawnResult): number {
   if (result.status !== null) {
     return result.status;
   }
   if (result.signal !== null) {
-    const signalNumber = os.constants.signals[result.signal];
-    return signalNumber === undefined ? 1 : 128 + signalNumber;
+    return SIGNAL_EXIT_CODE_OFFSET + os.constants.signals[result.signal];
   }
   return 1;
 }

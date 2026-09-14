@@ -114,25 +114,22 @@ export function buildEntryFacts(params: BuildEntryFactsParams): EntryFacts {
   };
 }
 
-function listSubtree(fs: FarmFs, root: string, rel: string, out: ListingEntry[]): void {
+// A pure recursive listing, returning each level's entries rather than mutating a shared out-parameter (the latter was this function's original shape, but that requires a non-readonly array parameter -- exadev/prefer-readonly-array-param wants every array parameter readonly unconditionally, forcing exactly this kind of in-place-mutation pattern to be reconsidered rather than merely annotated around. This also fixed a genuine pre-existing bug: the old out-parameter was typed readonly ListingEntry[] while every caller passed a real mutable array for it to push into -- a real TS2339 tsc --noEmit was masking behind a stale tsconfig.tsbuildinfo from incremental compilation).
+function listSubtree(fs: FarmFs, root: string, rel: string): ListingEntry[] {
   const absolute = path.join(root, rel);
   const stat = fs.lstat(absolute);
   if (stat === undefined) {
-    return;
+    return [];
   }
   if (stat.kind === "symlink") {
-    out.push({ rel, kind: "symlink" });
-    return;
+    return [{ rel, kind: "symlink" }];
   }
   if (stat.kind === "dir") {
-    out.push({ rel, kind: "dir" });
-    for (const name of [...fs.readdir(absolute)].sort()) {
-      listSubtree(fs, root, `${rel}/${name}`, out);
-    }
-    return;
+    const children = [...fs.readdir(absolute)].sort().flatMap((name) => listSubtree(fs, root, `${rel}/${name}`));
+    return [{ rel, kind: "dir" }, ...children];
   }
   const contentHash = fs.hashFile(absolute);
-  out.push({ rel, kind: "file", ...(contentHash === undefined ? {} : { contentHash }) });
+  return [{ rel, kind: "file", ...(contentHash === undefined ? {} : { contentHash }) }];
 }
 
 /** Drops any scope root that already sits beneath another, so a nested materialised directory is not walked twice. */
@@ -166,11 +163,7 @@ function reconciliationScope(fs: FarmFs, farmRoot: string, manifest: FarmManifes
 
 /** Lists the old farm's reconcilable subtrees, flat and hashed, ready for `planReconciliation`. */
 function collectFarmListing(fs: FarmFs, farmRoot: string, scopeRoots: readonly string[]): ListingEntry[] {
-  const out: ListingEntry[] = [];
-  for (const root of scopeRoots) {
-    listSubtree(fs, farmRoot, root, out);
-  }
-  return out;
+  return scopeRoots.flatMap((root) => listSubtree(fs, farmRoot, root));
 }
 
 /**
@@ -558,7 +551,7 @@ function executeReconciliation(params: ExecuteReconciliationParams): Reconciliat
       continue;
     }
 
-    const preserved = `${canonical}.farm-conflict-${params.nowMs}`;
+    const preserved = `${canonical}.farm-conflict-${String(params.nowMs)}`;
     params.fs.mkdirp(path.dirname(canonical));
     params.fs.copyRecursive(from, preserved);
     conflicts.push(action.rel);
@@ -619,7 +612,10 @@ function sameLinks(a: FarmManifest["links"], b: FarmManifest["links"]): boolean 
   }
   return a.every((link, index) => {
     const other = b[index];
-    return other?.rel === link.rel && other?.target === link.target;
+    if (other === undefined) {
+      return false;
+    }
+    return other.rel === link.rel && other.target === link.target;
   });
 }
 
@@ -794,16 +790,16 @@ export function recoveryDiagnostics(recovery: RecoveryResult, identity: string):
   }
   const parts: string[] = [];
   if (recovery.removedScratch.length > 0) {
-    parts.push(`removed ${recovery.removedScratch.length} abandoned scratch tree(s)`);
+    parts.push(`removed ${String(recovery.removedScratch.length)} abandoned scratch tree(s)`);
   }
   if (recovery.restoredFrom !== undefined) {
     parts.push(`restored the farm from ${recovery.restoredFrom}, which a previous launch was killed mid-swap`);
   }
   if (recovery.completed.length > 0) {
-    parts.push(`finished carrying local state out of ${recovery.completed.length} superseded farm(s)`);
+    parts.push(`finished carrying local state out of ${String(recovery.completed.length)} superseded farm(s)`);
   }
   if (recovery.autoResolved.length > 0) {
-    parts.push(`discarded ${recovery.autoResolved.length} superseded runtime entr${recovery.autoResolved.length === 1 ? "y" : "ies"} (${recovery.autoResolved.join(", ")}) — disposable per-machine state, safe to drop without asking`);
+    parts.push(`discarded ${String(recovery.autoResolved.length)} superseded runtime entr${recovery.autoResolved.length === 1 ? "y" : "ies"} (${recovery.autoResolved.join(", ")}) — disposable per-machine state, safe to drop without asking`);
   }
   if (recovery.retained.length > 0) {
     parts.push(

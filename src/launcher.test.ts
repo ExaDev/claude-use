@@ -10,13 +10,13 @@ import type { DiscoveredClaudeBinary } from "./versionDiscovery";
 
 class ExitCalled extends Error {
   constructor(readonly code: number) {
-    super(`process would exit with code ${code}`);
+    super(`process would exit with code ${String(code)}`);
   }
 }
 
 const paths = buildLayoutPaths("/home/testuser/.claude-use");
 
-function fakeProc(env: Record<string, string | undefined>, argv: string[]): ProcPort {
+function fakeProc(env: Readonly<Record<string, string | undefined>>, argv: readonly string[]): ProcPort {
   return {
     env,
     argv,
@@ -47,9 +47,9 @@ function fakeLog(): LogPort & { infos: string[]; warns: string[]; errors: string
     infos,
     warns,
     errors,
-    info: (message) => infos.push(message),
-    warn: (message) => warns.push(message),
-    error: (message) => errors.push(message),
+    info: (message) => { infos.push(message); },
+    warn: (message) => { warns.push(message); },
+    error: (message) => { errors.push(message); },
   };
 }
 

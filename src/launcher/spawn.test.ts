@@ -1,3 +1,4 @@
+import os from "node:os";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ProcPort, SpawnPort, SpawnResult } from "./ports";
@@ -5,7 +6,7 @@ import { spawnClaude } from "./spawn";
 
 class ExitCalled extends Error {
   constructor(readonly code: number) {
-    super(`process would exit with code ${code}`);
+    super(`process would exit with code ${String(code)}`);
   }
 }
 
@@ -48,21 +49,24 @@ describe("spawnClaude", () => {
   });
 
   it("propagates a non-zero exit code faithfully", () => {
-    const spawn = fakeSpawn({ status: 7, signal: null });
+    const ARBITRARY_NONZERO_EXIT_CODE = 7;
+    const spawn = fakeSpawn({ status: ARBITRARY_NONZERO_EXIT_CODE, signal: null });
     const proc = fakeProc();
     const code = expectExitCode(() =>
       spawnClaude({ bin: "/bin/claude", args: [], env: {}, spawn, proc }),
     );
-    expect(code).toBe(7);
+    expect(code).toBe(ARBITRARY_NONZERO_EXIT_CODE);
   });
 
   it("maps a signal-terminated child to 128 + signal number", () => {
+    const SIGNAL_EXIT_CODE_OFFSET = 128;
+    const SIGTERM_NUMBER = os.constants.signals.SIGTERM;
     const spawn = fakeSpawn({ status: null, signal: "SIGTERM" });
     const proc = fakeProc();
     const code = expectExitCode(() =>
       spawnClaude({ bin: "/bin/claude", args: [], env: {}, spawn, proc }),
     );
-    expect(code).toBe(143); // 128 + 15 (SIGTERM)
+    expect(code).toBe(SIGNAL_EXIT_CODE_OFFSET + SIGTERM_NUMBER);
   });
 
   it("throws when the child could not even be spawned, instead of exiting cleanly", () => {

@@ -161,7 +161,7 @@ describe("resyncFarm", () => {
     const result = resyncFarm(params(fs, { uniqueSuffix: "second", cascade: split }));
 
     expect(fs.readFileUtf8(`${FAKE_CLAUDE_HOME}/skills/review/SKILL.md`)).toBe("review skill");
-    expect(fs.readFileUtf8(`${FAKE_CLAUDE_HOME}/skills/review/SKILL.md.farm-conflict-${FAKE_NOW_MS}`)).toBe("diverged in the farm");
+    expect(fs.readFileUtf8(`${FAKE_CLAUDE_HOME}/skills/review/SKILL.md.farm-conflict-${String(FAKE_NOW_MS)}`)).toBe("diverged in the farm");
     expect(result.diagnostics.some((diagnostic) => diagnostic.code === "RECONCILE_CONFLICT")).toBe(true);
   });
 
