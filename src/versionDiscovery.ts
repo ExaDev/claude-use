@@ -50,7 +50,7 @@ export function isNumericDottedVersion(name: string): boolean {
 }
 
 /**
- * Compares two plain dotted-numeric version strings segment by segment, treating a missing trailing segment as 0 (so "2.1" < "2.1.1"). Returns a negative number when `a` < `b`, positive when `a` > `b`, and 0 when equal. Throws if either string isn't a valid numeric-dotted version — callers must filter with isNumericDottedVersion first, since a naive string/lexicographic sort would incorrectly rank "2.9.0" ahead of "2.10.0".
+ * Compares two plain dotted-numeric version strings segment by segment, treating a missing trailing segment as 0 (so "2.1" sorts before "2.1.1"). Returns a negative number when `a` is the earlier version, a positive number when `a` is the later one, and 0 when equal. Throws if either string isn't a valid numeric-dotted version — callers must filter with isNumericDottedVersion first, since a naive string/lexicographic sort would incorrectly rank "2.9.0" ahead of "2.10.0".
  */
 export function compareVersions(a: string, b: string): number {
   if (!isNumericDottedVersion(a)) {
@@ -77,7 +77,7 @@ export function compareVersions(a: string, b: string): number {
 /**
  * Filters `entries` to genuinely-executable, non-empty regular files whose name is a valid dotted-numeric version (skipping things like .DS_Store or a stray empty file), then picks the highest version by a real numeric-segment comparison. Returns undefined when nothing qualifies.
  */
-export function pickHighestVersion(entries: VersionsDirEntry[]): string | undefined {
+export function pickHighestVersion(entries: readonly VersionsDirEntry[]): string | undefined {
   const candidates = entries.filter(
     (entry) => entry.isFile && entry.isExecutable && entry.sizeBytes > 0 && isNumericDottedVersion(entry.name),
   );

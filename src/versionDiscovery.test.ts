@@ -7,7 +7,7 @@ import {
   type VersionsDirEntry,
 } from "./versionDiscovery";
 
-function file(name: string, opts: Partial<Omit<VersionsDirEntry, "name">> = {}): VersionsDirEntry {
+function file(name: string, opts: Readonly<Partial<Omit<VersionsDirEntry, "name">>> = {}): VersionsDirEntry {
   return {
     name,
     isFile: true,

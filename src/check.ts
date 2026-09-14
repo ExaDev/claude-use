@@ -89,7 +89,7 @@ export function formatDecision(decision: Decision): string {
       reason =
         decision.rule === undefined
           ? "an entries rule"
-          : `entries rule "${decision.rule.rawKey}" from layer ${decision.rule.layer}`;
+          : `entries rule "${decision.rule.rawKey}" from layer ${String(decision.rule.layer)}`;
       break;
     case "category-override":
       reason = `category "${decision.category ?? "?"}" overridden by a layer`;
@@ -100,7 +100,7 @@ export function formatDecision(decision: Decision): string {
   }
   const eliminatedNote =
     decision.eliminated !== undefined && decision.eliminated.length > 0
-      ? ` [${decision.eliminated.length} more specific rule(s) eliminated by a failing when-condition]`
+      ? ` [${String(decision.eliminated.length)} more specific rule(s) eliminated by a failing when-condition]`
       : "";
   return `${decision.relPath}: ${status} — ${reason}${eliminatedNote}`;
 }
@@ -130,7 +130,7 @@ export function lookupKeychainService(run: RunPort, farmRoot: string): KeychainL
     return {
       checked: true,
       found: false,
-      note: `No Keychain entry found for account "${farmRoot}" (security exited ${result.status ?? "with no status"}).`,
+      note: `No Keychain entry found for account "${farmRoot}" (security exited ${result.status === null ? "with no status" : String(result.status)}).`,
     };
   }
   const serviceName = parseKeychainServiceName(result.stderr);
@@ -333,7 +333,7 @@ export function formatCheckReport(report: CheckReport): string[] {
 
   lines.push("", "Layers (shallowest/earliest first):");
   for (const layer of report.resolved.assembled.layers) {
-    lines.push(`  [${layer.id}] ${layer.kind}: ${layer.source}`);
+    lines.push(`  [${String(layer.id)}] ${layer.kind}: ${layer.source}`);
   }
 
   lines.push("", "Resolved entries:");
@@ -377,9 +377,9 @@ export function formatCheckReport(report: CheckReport): string[] {
     lines.push("", "Settings exposure (names and counts only, never values):");
     for (const exposure of report.settingsExposure) {
       lines.push(
-        `  ${exposure.file}: ${exposure.envKeyNames.length} env key(s) [${exposure.envKeyNames.join(", ")}], ` +
-          `${exposure.hookEventNames.length} hook event(s) [${exposure.hookEventNames.join(", ")}], ` +
-          `${exposure.hookCommandCount} hook command(s)`,
+        `  ${exposure.file}: ${String(exposure.envKeyNames.length)} env key(s) [${exposure.envKeyNames.join(", ")}], ` +
+          `${String(exposure.hookEventNames.length)} hook event(s) [${exposure.hookEventNames.join(", ")}], ` +
+          `${String(exposure.hookCommandCount)} hook command(s)`,
       );
     }
   }
@@ -397,7 +397,7 @@ export function registerCheckCommand(program: Command, paths: LayoutPaths): void
     .command("check [path]")
     .description("Show the resolved cascade for a directory/identity, plus always-on diagnostics. Never touches the farm or spawns claude.")
     .option("--identity <name>", "Identity to check (defaults to the identity a real launch would resolve).")
-    .action((pathArg: string | undefined, options: { identity?: string }) => {
+    .action((pathArg: string | undefined, options: Readonly<{ identity?: string }>) => {
       const cwd = pathArg === undefined ? process.cwd() : path.resolve(pathArg);
       const home = os.homedir();
       const claudeHome = resolveClaudeHome();

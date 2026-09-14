@@ -21,9 +21,16 @@ describe("resolveContentSourcePath", () => {
   });
 });
 
+// A regular file with no execute bit set (owner/group/other all read-write only).
+const NON_EXECUTABLE_MODE = 0o644;
+// A regular file with the owner's execute bit set, alongside group/other read+execute.
+const EXECUTABLE_MODE = 0o755;
+// Read-write for owner/group/other, deliberately with no execute bit at all -- used only in the Windows-branch tests below, where mode bits must be irrelevant to the result.
+const MODE_WITHOUT_EXECUTE_BITS = 0o666;
+
 describe("resolveExecutableCandidate", () => {
   it("on POSIX, requires the execute mode bits to be set", () => {
-    const modes = new Map([["/usr/bin/claude-use", 0o644]]); // regular file, not executable
+    const modes = new Map([["/usr/bin/claude-use", NON_EXECUTABLE_MODE]]); // regular file, not executable
     const result = resolveExecutableCandidate("/usr/bin", "claude-use", {
       platform: "linux",
       pathext: undefined,
@@ -33,7 +40,7 @@ describe("resolveExecutableCandidate", () => {
   });
 
   it("on POSIX, finds a file whose execute bits are set", () => {
-    const modes = new Map([["/usr/bin/claude-use", 0o755]]);
+    const modes = new Map([["/usr/bin/claude-use", EXECUTABLE_MODE]]);
     const result = resolveExecutableCandidate("/usr/bin", "claude-use", {
       platform: "linux",
       pathext: undefined,
@@ -46,7 +53,7 @@ describe("resolveExecutableCandidate", () => {
 
   it("on Windows, mode bits are irrelevant -- a plain .exe with no execute bits at all must still be found", () => {
     // This is the confirmed real bug: Node's own docs state fs.Stats.mode on Windows only ever exposes owner read/write, never execute -- a POSIX-style (mode & 0o111) check silently rejects every file on Windows, which is exactly why the Scoop shim redirect (a real, explicitly-named .exe) was never found in CI.
-    const modes = new Map([[path.join("/scoop/shims", "claude-use.exe"), 0o666]]);
+    const modes = new Map([[path.join("/scoop/shims", "claude-use.exe"), MODE_WITHOUT_EXECUTE_BITS]]);
     const result = resolveExecutableCandidate("/scoop/shims", "claude-use.exe", {
       platform: "win32",
       pathext: ".COM;.EXE;.BAT;.CMD",
@@ -62,7 +69,7 @@ describe("resolveExecutableCandidate", () => {
   }
 
   it("on Windows, tries each PATHEXT extension in turn for a bare name with no extension", () => {
-    const statFileMode = caseInsensitiveModes([[`${path.join("/bin", "claude")}.exe`, 0o666]]);
+    const statFileMode = caseInsensitiveModes([[`${path.join("/bin", "claude")}.exe`, MODE_WITHOUT_EXECUTE_BITS]]);
     const result = resolveExecutableCandidate("/bin", "claude", {
       platform: "win32",
       pathext: ".COM;.EXE;.BAT;.CMD",
@@ -73,8 +80,8 @@ describe("resolveExecutableCandidate", () => {
 
   it("on Windows, stops at the first PATHEXT extension that matches", () => {
     const statFileMode = caseInsensitiveModes([
-      [`${path.join("/bin", "claude")}.bat`, 0o666],
-      [`${path.join("/bin", "claude")}.cmd`, 0o666],
+      [`${path.join("/bin", "claude")}.bat`, MODE_WITHOUT_EXECUTE_BITS],
+      [`${path.join("/bin", "claude")}.cmd`, MODE_WITHOUT_EXECUTE_BITS],
     ]);
     const result = resolveExecutableCandidate("/bin", "claude", {
       platform: "win32",
@@ -85,7 +92,7 @@ describe("resolveExecutableCandidate", () => {
   });
 
   it("on Windows, falls back to the documented default PATHEXT list when unset", () => {
-    const statFileMode = caseInsensitiveModes([[`${path.join("/bin", "claude")}.exe`, 0o666]]);
+    const statFileMode = caseInsensitiveModes([[`${path.join("/bin", "claude")}.exe`, MODE_WITHOUT_EXECUTE_BITS]]);
     const result = resolveExecutableCandidate("/bin", "claude", {
       platform: "win32",
       pathext: undefined,
