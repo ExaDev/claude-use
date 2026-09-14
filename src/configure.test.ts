@@ -33,7 +33,7 @@ function scriptedPrompts(answers: readonly unknown[]): { readonly port: PromptsP
     return value;
   };
   const port: PromptsPort = {
-    select: <Value extends string>(params: SelectParams<Value>): Promise<Value | symbol> => {
+    select: async <Value extends string>(params: SelectParams<Value>): Promise<Value | symbol> => {
       messages.push(params.message);
       const answer = next();
       if (typeof answer === "symbol") return Promise.resolve(answer);
@@ -41,7 +41,7 @@ function scriptedPrompts(answers: readonly unknown[]): { readonly port: PromptsP
       if (option === undefined) throw new Error(`scripted select answer not in options: ${String(answer)}`);
       return Promise.resolve(option.value);
     },
-    multiselect: <Value extends string>(params: MultiselectParams<Value>): Promise<readonly Value[] | symbol> => {
+    multiselect: async <Value extends string>(params: MultiselectParams<Value>): Promise<readonly Value[] | symbol> => {
       messages.push(params.message);
       const answer = next();
       if (typeof answer === "symbol") return Promise.resolve(answer);
@@ -54,7 +54,7 @@ function scriptedPrompts(answers: readonly unknown[]): { readonly port: PromptsP
       }
       return Promise.resolve(selected);
     },
-    text: (params: TextParams): Promise<string | symbol> => {
+    text: async (params: TextParams): Promise<string | symbol> => {
       messages.push(params.message);
       const answer = next();
       if (typeof answer === "symbol") return Promise.resolve(answer);
@@ -62,16 +62,16 @@ function scriptedPrompts(answers: readonly unknown[]): { readonly port: PromptsP
       return Promise.resolve(answer);
     },
     isCancel: (value): value is symbol => typeof value === "symbol",
-    cancel: (message) => lifecycleCalls.push(`cancel:${message ?? ""}`),
-    intro: (message) => lifecycleCalls.push(`intro:${message ?? ""}`),
-    outro: (message) => lifecycleCalls.push(`outro:${message ?? ""}`),
+    cancel: (message) => { lifecycleCalls.push(`cancel:${message ?? ""}`); },
+    intro: (message) => { lifecycleCalls.push(`intro:${message ?? ""}`); },
+    outro: (message) => { lifecycleCalls.push(`outro:${message ?? ""}`); },
   };
   return { port, messages };
 }
 
 function makeLog(): { readonly log: { info: (message: string) => void }; readonly lines: string[] } {
   const lines: string[] = [];
-  return { log: { info: (message: string) => lines.push(message) }, lines };
+  return { log: { info: (message: string) => { lines.push(message); } }, lines };
 }
 
 describe("chooseWriteTarget", () => {

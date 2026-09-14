@@ -100,7 +100,7 @@ function isKnownOptionValue<Value extends string>(value: string, options: readon
 }
 
 export const realPromptsPort: PromptsPort = {
-  select: <Value extends string>(params: SelectParams<Value>) =>
+  select: async <Value extends string>(params: SelectParams<Value>) =>
     clack
       .select({
         message: params.message,
@@ -113,7 +113,7 @@ export const realPromptsPort: PromptsPort = {
         }
         throw new Error(`@clack/prompts select() returned a value not present in the given options: ${value}`);
       }),
-  multiselect: <Value extends string>(params: MultiselectParams<Value>) =>
+  multiselect: async <Value extends string>(params: MultiselectParams<Value>) =>
     clack
       .multiselect({
         message: params.message,
@@ -126,7 +126,7 @@ export const realPromptsPort: PromptsPort = {
         }
         throw new Error(`@clack/prompts multiselect() returned a value not present in the given options: ${value.join(", ")}`);
       }),
-  text: (params: TextParams) =>
+  text: async (params: TextParams) =>
     clack.text({
       message: params.message,
       ...(params.placeholder === undefined ? {} : { placeholder: params.placeholder }),
@@ -219,6 +219,8 @@ export function describeWriteTarget(target: WriteTarget): string {
       return `directory rule for "${target.rulePath}"`;
     case "config-profile":
       return `configuration profile "${target.profileName}"`;
+    default:
+      return target satisfies never;
   }
 }
 
@@ -237,10 +239,10 @@ function writeCategoryPatch(paths: LayoutPaths, target: WriteTarget, patch: Read
     case "directory-rule": {
       const rules = readDirectoryRules(paths);
       const index = rules.rules.findIndex((rule) => rule.path === target.rulePath);
-      if (index === -1) {
+      const existingRule = index === -1 ? undefined : rules.rules[index];
+      if (existingRule === undefined) {
         throw new Error(`Directory rule for "${target.rulePath}" no longer exists.`);
       }
-      const existingRule = rules.rules[index]!;
       const merged: CategoryMap = { ...existingRule.categories, ...patch };
       const nextRules = [...rules.rules];
       nextRules[index] = { ...existingRule, categories: merged };
@@ -264,10 +266,10 @@ function writeEntriesPatch(paths: LayoutPaths, target: WriteTarget, patch: Reado
     case "directory-rule": {
       const rules = readDirectoryRules(paths);
       const index = rules.rules.findIndex((rule) => rule.path === target.rulePath);
-      if (index === -1) {
+      const existingRule = index === -1 ? undefined : rules.rules[index];
+      if (existingRule === undefined) {
         throw new Error(`Directory rule for "${target.rulePath}" no longer exists.`);
       }
-      const existingRule = rules.rules[index]!;
       const merged: Entries = { ...existingRule.entries, ...patch };
       const nextRules = [...rules.rules];
       nextRules[index] = { ...existingRule, entries: merged };
@@ -468,7 +470,7 @@ export function validateProfileName(value: string, existingNames?: readonly stri
   if (!PROFILE_NAME_RE.test(value)) {
     return "Names must start with a letter or digit, and contain only letters, digits, dots, dashes, underscores, and at signs.";
   }
-  if (existingNames?.includes(value)) {
+  if (existingNames?.includes(value) ?? false) {
     return `A configuration profile named "${value}" already exists.`;
   }
   return undefined;
@@ -730,7 +732,7 @@ export function registerConfigureCommand(program: Command, paths: LayoutPaths): 
     )
     .action(async (identityName: string, pathArg: string | undefined) => {
       await runConfigure(
-        { paths, prompts: realPromptsPort, log: { info: (message: string) => console.log(message) } },
+        { paths, prompts: realPromptsPort, log: { info: (message: string) => { console.log(message); } } },
         {
           identityName,
           ...(pathArg === undefined ? {} : { path: pathArg }),

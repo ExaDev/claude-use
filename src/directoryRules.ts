@@ -66,7 +66,10 @@ export function addDirectoryRule(paths: LayoutPaths, rulePath: string, options: 
     updated = buildNewRule(rulePath, options);
     writeDirectoryRules(paths, { ...current, rules: [...current.rules, updated] });
   } else {
-    const existingRule = current.rules[existingIndex]!;
+    const existingRule = current.rules[existingIndex];
+    if (existingRule === undefined) {
+      throw new Error(`Directory rule at index ${String(existingIndex)} unexpectedly missing.`);
+    }
     updated = {
       ...existingRule,
       ...(options.configProfile !== undefined ? { configProfile: options.configProfile } : {}),
@@ -106,7 +109,7 @@ export function registerRulesCommand(program: Command, paths: LayoutPaths): void
     .description("Add or update a directory rule.")
     .option("--profile <name>", "Configuration profile to select for this path.")
     .option("--identity <name>", "Identity to pin for this path.")
-    .action(async (rulePath: string, options: { profile?: string; identity?: string }) => {
+    .action(async (rulePath: string, options: Readonly<{ profile?: string; identity?: string }>) => {
       let profileName = options.profile;
       if (profileName !== undefined && readProfile(paths, profileName) === undefined) {
         const result = await runProfileWizard(realPromptsPort, { paths, defaultNewName: profileName });
@@ -114,9 +117,9 @@ export function registerRulesCommand(program: Command, paths: LayoutPaths): void
           console.log(`No configuration profile named "${profileName}" was created; the rule pins identity only.`);
           profileName = undefined;
         } else {
-          if (result.name !== options.profile) {
+          if (result.name !== profileName) {
             console.log(
-              `Created configuration profile "${result.name}" instead of "${options.profile}". The rule selects that name.`,
+              `Created configuration profile "${result.name}" instead of "${profileName}". The rule selects that name.`,
             );
           }
           profileName = result.name;
