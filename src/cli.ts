@@ -67,7 +67,7 @@ function buildClaudeUseProgram(): Command {
     .allowUnknownOption()
     .helpOption(false)
     .argument("[args...]", "Arguments to forward, e.g. @<name>, --config-profile <name>, or any Claude Code flag.")
-    .action(async (args: string[]) => {
+    .action(async (args: readonly string[]) => {
       await runClaude(args);
     });
 
@@ -108,7 +108,7 @@ function buildFarmRuntime(paths: LayoutPaths): {
           ...(cliOverride === undefined ? {} : { cliOverride }),
         }).input,
       now: () => Date.now(),
-      uniqueSuffix: `${process.pid}.${randomUUID()}`,
+      uniqueSuffix: `${String(process.pid)}.${randomUUID()}`,
       lock: { pid: process.pid, isProcessAlive: realIsProcessAlive, sleep: realSleepSync },
     },
     ...(selections.identity === undefined ? {} : { directoryIdentity: selections.identity }),

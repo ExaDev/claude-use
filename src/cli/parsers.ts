@@ -48,7 +48,7 @@ export function parseBoolStrict(input: string): boolean {
 }
 
 /**
- * Parses a comma-separated list of `<key>=<bool>` pairs into a plain object, e.g. `"history=true,knowledge=false"` -> `{ history: true, knowledge: false }`.
+ * Parses a comma-separated list of `<key>=<bool>` pairs into a plain object, e.g. `"history=true,knowledge=false"` becomes `{ history: true, knowledge: false }`.
  *
  * An empty string parses to `{}`. A key repeated within the same list is not an error — the later occurrence in the string wins, matching how a plain object literal with a repeated key behaves.
  */
@@ -64,6 +64,6 @@ export function parseBoolPairList(input: string): Record<string, boolean> {
 /**
  * Commander repeatable-option collector for a `--flag "a=true,b=false"`-shaped option: parses `value` and merges it over `previous`, so `--category history=true --category knowledge=false` (two separate invocations) accumulates into one object, later invocations winning on key collision — the same convention Commander's own repeatable-option examples use for arrays, applied to a merged object instead.
  */
-export function collectBoolPairs(value: string, previous: Record<string, boolean> = {}): Record<string, boolean> {
+export function collectBoolPairs(value: string, previous: Readonly<Record<string, boolean>> = {}): Record<string, boolean> {
   return { ...previous, ...parseBoolPairList(value) };
 }

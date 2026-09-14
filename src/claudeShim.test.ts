@@ -17,6 +17,19 @@ import {
 } from "./claudeShim";
 import { buildLayoutPaths, type LayoutPaths } from "./paths";
 
+// The owner/group/other execute bits -- a nonzero result means at least one of the three "may execute" bits is set.
+const EXECUTE_BITS_MASK = 0o111;
+
+// A minimal NodeJS.ErrnoException-shaped error for tests that need to simulate a specific fs error code -- a real class property, not Object.assign onto a constructed instance, so the code field is type-checked like any other.
+class CodedError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+  ) {
+    super(message);
+  }
+}
+
 describe("claudeShim", () => {
   let root: string;
   let paths: LayoutPaths;
@@ -90,7 +103,7 @@ describe("claudeShim", () => {
       expect(result.method).toBe("hardlink");
       expect(result.targetPath).toBe(path.join(binDir, "claude"));
       expect(fs.readFileSync(result.targetPath, "utf8")).toBe("fake-binary-v1");
-      expect(fs.statSync(result.targetPath).mode & 0o111).not.toBe(0);
+      expect(fs.statSync(result.targetPath).mode & EXECUTE_BITS_MASK).not.toBe(0);
     });
 
     it("places the shim next to a PATH-visible symlink, not next to its realpath target (Homebrew's Cellar layout)", () => {
@@ -202,7 +215,7 @@ describe("claudeShim", () => {
       const fakeLinkFs: LinkFs = {
         link: () => {
           calls.push("link");
-          throw Object.assign(new Error("cross-device"), { code: "EXDEV" });
+          throw new CodedError("cross-device", "EXDEV");
         },
         copyFile: (src, dest) => {
           calls.push("copyFile");
@@ -221,7 +234,7 @@ describe("claudeShim", () => {
     it("propagates any other link error unchanged, without falling back", () => {
       const fakeLinkFs: LinkFs = {
         link: () => {
-          throw Object.assign(new Error("permission denied"), { code: "EACCES" });
+          throw new CodedError("permission denied", "EACCES");
         },
         copyFile: () => {
           throw new Error("should not be called");

@@ -11,6 +11,9 @@ import { IdentityLockBusyError } from "./launcher/lock";
 import { UnrootedProjectPathError } from "./resolve/projects";
 import { EntryKeyError } from "./resolve/match";
 
+// An arbitrary fake PID, used only as a fixture for IdentityLockBusyError below.
+const FAKE_LOCK_HOLDER_PID = 42;
+
 /**
  * Every custom error this CLI throws to represent an expected, user-facing failure must extend `CliError` -- that is what makes `main()` in `src/cli.ts` print it as a clean one-line message instead of a raw stack trace. This test exists specifically to catch a class silently reverting to `extends Error`, or a new one being added without extending `CliError` at all, neither of which `tsc`/`eslint` would ever flag.
  */
@@ -29,7 +32,7 @@ describe("every CLI-facing error class extends CliError", () => {
     ["ConfigValidationError", () => new ConfigValidationError("/some/config.json", [])],
     ["InvalidCliCategoryError", () => new InvalidCliCategoryError("secret")],
     ["InvalidCliEntryKeyError", () => new InvalidCliEntryKeyError("no-prefix")],
-    ["IdentityLockBusyError", () => new IdentityLockBusyError("work", "/some/lock", 42)],
+    ["IdentityLockBusyError", () => new IdentityLockBusyError("work", "/some/lock", FAKE_LOCK_HOLDER_PID)],
     ["UnrootedProjectPathError", () => new UnrootedProjectPathError("relative/path")],
     ["EntryKeyError", () => new EntryKeyError("bad-key", "bad", "malformed")],
   ])("%s extends CliError", (_name, construct) => {
