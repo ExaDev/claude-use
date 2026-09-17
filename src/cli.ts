@@ -15,6 +15,7 @@ import { registerIdentityCommand, tryRunAtIdentityShortcut } from "./identityMan
 import { profileExists, registerProfileCommand } from "./configProfiles";
 import { registerRulesCommand } from "./directoryRules";
 import { resolveClaudeHome, resolveLayoutPaths, type LayoutPaths } from "./paths";
+import { registerRunCommand } from "./runCommand";
 import { runLauncher, type FarmRuntime } from "./launcher";
 import { parseLauncherArgv } from "./launcher/argv";
 import { decideConfigProfile, decideIdentity, loadIdentity } from "./launcher/identity";
@@ -57,19 +58,7 @@ function buildClaudeUseProgram(): Command {
   registerConfigureCommand(program, paths);
   registerDoctorCommand(program, paths);
   registerShimCommand(program, paths);
-
-  program
-    .command("run")
-    .description(
-      "Run the launcher pipeline directly, without needing a `claude`-named binary on PATH. " +
-        "Every argument is forwarded exactly as `claude` would receive it.",
-    )
-    .allowUnknownOption()
-    .helpOption(false)
-    .argument("[args...]", "Arguments to forward, e.g. @<name>, --config-profile <name>, or any Claude Code flag.")
-    .action(async (args: readonly string[]) => {
-      await runClaude(args);
-    });
+  registerRunCommand(program, runClaude);
 
   return program;
 }
