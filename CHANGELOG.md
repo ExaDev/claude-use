@@ -1,3 +1,9 @@
+## [2.4.2](https://github.com/ExaDev/claude-use/compare/v2.4.1...v2.4.2) (2026-09-17)
+
+### Bug Fixes
+
+* preserve literal -- when forwarding args in claude-use run ([f046c44](https://github.com/ExaDev/claude-use/commit/f046c44cea02bf7137395f81ac92390f814dded8))
+
 ## [2.4.1](https://github.com/ExaDev/claude-use/compare/v2.4.0...v2.4.1) (2026-09-14)
 
 ### Bug Fixes
